@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SmartFactory.Api/SmartFactory.Api.csproj" />
+  <Project Path="SmartFactory.Tests/SmartFactory.Tests.csproj" />
+</Solution>

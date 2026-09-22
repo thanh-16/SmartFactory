@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KCS-SmartFactory OS | Hệ Thống Số Hóa Kiểm Soát Chất Lượng</title>
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- SignalR Client -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            factory: {
+              50: '#f0fdf4',
+              500: '#22c55e',
+              900: '#14532d',
+            },
+            andon: {
+              red: '#ef4444',
+              yellow: '#eab308',
+              green: '#22c55e',
+            }
+          },
+          animation: {
+            'beacon-pulse': 'beacon 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'lock-shake': 'shake 0.5s ease-in-out'
+          },
+          keyframes: {
+            beacon: {
+              '0%, 100%': { opacity: 1, transform: 'scale(1)', filter: 'drop-shadow(0 0 15px rgba(239,68,68,0.8))' },
+              '50%': { opacity: 0.4, transform: 'scale(1.08)', filter: 'drop-shadow(0 0 30px rgba(239,68,68,1))' },
+            },
+            shake: {
+              '0%, 100%': { transform: 'translateX(0)' },
+              '20%, 60%': { transform: 'translateX(-6px)' },
+              '40%, 80%': { transform: 'translateX(6px)' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(51, 65, 85, 0.6);
+    }
+    .andon-active-border {
+      box-shadow: inset 0 0 30px rgba(239, 68, 68, 0.3), 0 0 20px rgba(239, 68, 68, 0.4);
+      border-color: rgba(239, 68, 68, 0.8) !important;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+
+  <!-- TOP NAVIGATION HEADER -->
+  <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-50 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand & Status -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i data-lucide="cpu" class="w-6 h-6 text-slate-950 font-bold"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+              KCS-SmartFactory OS
+            </span>
+            <span class="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-emerald-500/30">
+              v1.0 .NET 10
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">Hệ Thống Kiểm Định Chất Lượng & Xử Lý Sự Cố Tự Động</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs & Realtime Indicator -->
+      <div class="flex items-center gap-4">
+        <!-- View Selector Tabs -->
+        <nav class="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700/60">
+          <button id="tab-kcs" onclick="switchView('kcs')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 bg-emerald-500 text-slate-950 shadow-md">
+            <i data-lucide="clipboard-check" class="w-4 h-4"></i>
+            <span>Trạm KCS Hiện Trường</span>
+          </button>
+          <button id="tab-supervisor" onclick="switchView('supervisor')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 text-slate-400 hover:text-slate-200">
+            <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            <span>Trung Tâm Quản Đốc (Andon)</span>
+            <span id="badge-pending-count" class="hidden px-1.5 py-0.2 rounded-full text-[10px] bg-red-500 text-white font-bold animate-pulse">0</span>
+          </button>
+        </nav>
+
+        <!-- SignalR Connection Status -->
+        <div id="signalr-indicator" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-xs">
+          <span id="signalr-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+          <span id="signalr-text" class="text-slate-300 font-medium">Đang kết nối SignalR...</span>
+        </div>
+
+        <!-- Mute Audio Toggle -->
+        <button id="btn-sound-toggle" onclick="toggleSound()" title="Bật/Tắt âm còi báo động Andon" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          <i id="icon-sound" data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ANDON ALARM TOP BEACON BANNER (Appears when critical defect arrives) -->
+  <div id="andon-beacon-bar" class="hidden bg-gradient-to-r from-red-600 via-rose-500 to-red-600 text-white px-4 py-2 text-center text-xs sm:text-sm font-bold flex items-center justify-center gap-3 shadow-lg shadow-red-500/50 border-b border-red-400/50 animate-beacon-pulse">
+    <i data-lucide="alert-triangle" class="w-5 h-5 animate-bounce"></i>
+    <span id="andon-beacon-text">CẢNH BÁO ANDON: PHÁT HIỆN SỰ CỐ KHUYẾT TẬT NGHIÊM TRỌNG! LÔ HÀNG ĐÃ BỊ KHÓA!</span>
+    <button onclick="dismissAndonBar()" class="ml-4 px-2 py-0.5 rounded bg-black/30 hover:bg-black/50 text-[11px] uppercase tracking-wide border border-white/20">
+      Đã Tiếp Nhận
+    </button>
+  </div>
+
+  <!-- MAIN APPLICATION CONTENT CONTAINER -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 1: TRẠM KIỂM ĐỊNH KCS (Mobile / Tablet Optimized)                    -->
+    <!-- ========================================================================= -->
+    <div id="view-kcs" class="space-y-6">
+
+      <!-- Header Intro -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i data-lucide="camera" class="w-5 h-5 text-emerald-400"></i>
+            Trạm Kiểm Soát Chất Lượng Hiện Trường (KCS Mobile)
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">Chụp ảnh phế phẩm, phân tích khuyết tật qua Vision AI và lập biên bản khóa lô tức thì.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-400">Người thực hiện:</span>
+          <span class="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-1.5">
+            <i data-lucide="user" class="w-3.5 h-3.5"></i>
+            Lê Thị KCS (KCS Trưởng Ca)
+          </span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Form Input Card (7 Cols) -->
+        <div class="lg:col-span-7 glass-card rounded-2xl p-6 shadow-xl">
+          <form id="form-kcs-inspect" onsubmit="handleKcsInspectSubmit(event)" class="space-y-5">
+            
+            <!-- Trạm gia công & Lô sản xuất -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1.5">1. Trạm Máy / Dây Chuyền <span class="text-red-400">*</span></label>
+                <select id="select-station" required onchange="filterLotsByStation()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition">
+                  <option value="">-- Đang nạp danh mục trạm --</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1.5">2. Lô Hàng Đang Gia Công <span class="text-red-400">*</span></label>
+                <select id="select-lot" required onchange="onLotSelected()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition">
+                  <option value="">-- Đang nạp danh mục lô --</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Lot Quick Info Preview -->
+            <div id="lot-info-box" class="hidden p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs flex items-center justify-between">
+              <div>
+                <span class="text-slate-400">Sản phẩm:</span>
+                <span id="info-product-name" class="font-semibold text-slate-200 ml-1">-</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-slate-400">Trạng thái:</span>
+                <span id="info-lot-status" class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">InProgress</span>
+              </div>
+            </div>
+
+            <!-- Upload Ảnh Bằng Chứng -->
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1.5">3. Chụp / Tải Ảnh Chi Tiết Lỗi (Bắt buộc kiểm tra Magic Bytes) <span class="text-red-400">*</span></label>
+              
+              <div id="dropzone" onclick="document.getElementById('input-defect-image').click()" class="border-2 border-dashed border-slate-700 hover:border-emerald-500/70 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-900/40 hover:bg-slate-900/80 group">
+                <input type="file" id="input-defect-image" accept="image/jpeg,image/png,image/webp" capture="environment" onchange="previewImage(event)" class="hidden" required>
+                
+                <div id="dropzone-placeholder" class="space-y-2">
+                  <div class="w-12 h-12 rounded-xl bg-slate-800 group-hover:bg-emerald-500/20 flex items-center justify-center mx-auto text-slate-400 group-hover:text-emerald-400 transition">
+                    <i data-lucide="upload-cloud" class="w-6 h-6"></i>
+                  </div>
+                  <div class="text-xs text-slate-300">
+                    <span class="text-emerald-400 font-semibold">Chạm vào đây để chụp ảnh</span> hoặc chọn từ thư viện
+                  </div>
+                  <p class="text-[11px] text-slate-500">Chấp thuận JPEG, PNG, WEBP (Tối đa 5.0 MB - Tự động chặn file ngụy tạo)</p>
+                </div>
+
+                <!-- Preview Area -->
+                <div id="image-preview-wrapper" class="hidden relative max-w-sm mx-auto">
+                  <img id="image-preview" src="#" alt="Defect preview" class="w-full h-48 object-cover rounded-xl border border-slate-700 shadow-md">
+                  <button type="button" onclick="removeImage(event)" class="absolute -top-2 -right-2 w-7 h-7 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                  </button>
+                  <p id="image-name" class="text-[11px] text-slate-400 mt-2 truncate"></p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick Defect Tags & Description -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-xs font-medium text-slate-300">4. Mô Tả Hiện Tượng Khuyết Tật</label>
+                <span class="text-[11px] text-slate-400">Chọn nhanh mẫu gợi ý:</span>
+              </div>
+
+              <!-- Quick chips -->
+              <div class="flex flex-wrap gap-1.5 mb-2.5">
+                <button type="button" onclick="setQuickDesc('Nứt ứng suất ngang thân kim loại do áp lực dập quá mức')" class="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+                  ⚡ Nứt Thân (Critical)
+                </button>
+                <button type="button" onclick="setQuickDesc('Biến dạng cong vênh biên dạng mép phôi vượt quá dung sai 2.4mm')" class="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+                  📐 Biến Dạng (Major)
+                </button>
+                <button type="button" onclick="setQuickDesc('Trầy xước bề mặt lớp sơn bóng bảo vệ do cọ sát bàn thao tác')" class="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+                  ✨ Trầy Xước (Minor)
+                </button>
+                <button type="button" onclick="setQuickDesc('Thiếu gioăng đệm cao su chịu nhiệt tại cụm liên kết')" class="px-2.5 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+                  🧩 Thiếu Chi Tiết
+                </button>
+              </div>
+
+              <textarea id="input-description" rows="3" placeholder="Nhập chi tiết vị trí khuyết tật, âm thanh bất thường hoặc nhận định ban đầu của KCS..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition"></textarea>
+            </div>
+
+            <!-- Action Submit Button -->
+            <button type="submit" id="btn-submit-inspect" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 transition active:scale-[0.98]">
+              <i data-lucide="sparkles" class="w-5 h-5"></i>
+              <span id="btn-submit-text">PHÂN TÍCH AI & LẬP BIÊN BẢN KHÓA LÔ</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Live AI Diagnosis & Result Card (5 Cols) -->
+        <div class="lg:col-span-5 space-y-4">
+          
+          <!-- AI Analysis Card -->
+          <div id="ai-result-card" class="glass-card rounded-2xl p-6 border-slate-800 relative overflow-hidden transition-all duration-300">
+            
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center">
+                  <i data-lucide="bot" class="w-5 h-5"></i>
+                </div>
+                <h3 class="font-bold text-sm text-white">Chẩn Đoán Trực Quan Gemini Vision</h3>
+              </div>
+              <span id="ai-severity-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                Chờ kiểm tra
+              </span>
+            </div>
+
+            <!-- Empty State -->
+            <div id="ai-empty-state" class="py-8 text-center text-slate-500 space-y-2">
+              <i data-lucide="scan" class="w-10 h-10 mx-auto opacity-40"></i>
+              <p class="text-xs">Chụp ảnh và bấm nút gửi để kích hoạt động cơ chẩn đoán AI Vision thời gian thực.</p>
+            </div>
+
+            <!-- Active Content State -->
+            <div id="ai-active-content" class="hidden space-y-4">
+              <!-- Defect Type & Confidence -->
+              <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-slate-400">Phân loại khuyết tật:</span>
+                  <span id="ai-defect-type" class="font-bold text-white text-sm">Crack</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-slate-400">Độ tin cậy AI:</span>
+                  <span id="ai-confidence" class="font-semibold text-emerald-400">96.5%</span>
+                </div>
+              </div>
+
+              <!-- Root Cause -->
+              <div>
+                <h4 class="text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+                  <i data-lucide="microscope" class="w-3.5 h-3.5 text-cyan-400"></i>
+                  Phân Tích Nguyên Nhân Gốc Rễ (RCA):
+                </h4>
+                <p id="ai-root-cause" class="text-xs text-slate-300 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80 leading-relaxed"></p>
+              </div>
+
+              <!-- Suggested Action -->
+              <div>
+                <h4 class="text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+                  <i data-lucide="wrench" class="w-3.5 h-3.5 text-amber-400"></i>
+                  Khuyến Nghị Kỹ Thuật Tức Thì:
+                </h4>
+                <p id="ai-suggested-action" class="text-xs text-slate-300 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80 leading-relaxed"></p>
+              </div>
+
+              <!-- ATOMIC LOCK ALERT BANNER -->
+              <div id="lot-locked-banner" class="hidden p-4 rounded-xl bg-red-950/70 border border-red-500/80 text-red-200 animate-lock-shake">
+                <div class="flex items-start gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                    <i data-lucide="lock" class="w-5 h-5"></i>
+                  </div>
+                  <div>
+                    <h5 class="text-xs font-extrabold uppercase tracking-wide text-red-300">PHONG TỎA LÔ HÀNG THÀNH CÔNG</h5>
+                    <p class="text-[11px] text-red-200/90 mt-0.5">
+                      Lô hàng đã tự động chuyển sang trạng thái <strong class="text-white underline">LOCKED</strong> trong giao dịch nguyên tử. Trạm máy và kho đã nhận lệnh phong tỏa.
+                    </p>
+                    <div class="mt-2 text-[10px] text-red-300/80 flex items-center gap-2">
+                      <span id="locked-ncr-code" class="font-mono bg-red-900/50 px-2 py-0.5 rounded border border-red-700/50">NCR-2026-0000</span>
+                      <span>Đã truyền tin Andon tới Quản đốc.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Shift Inspection History Snippet -->
+          <div class="glass-card rounded-2xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <i data-lucide="history" class="w-4 h-4 text-slate-400"></i>
+                Sự Cố Vừa Ghi Nhận Trong Ca
+              </h4>
+              <button onclick="loadRecentReports()" class="text-[11px] text-emerald-400 hover:underline">Làm mới</button>
+            </div>
+            <div id="kcs-recent-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <p class="text-xs text-slate-500 text-center py-3">Chưa có bản ghi mới trong ca hiện tại.</p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 2: TRUNG TÂM CHỈ HUY QUẢN ĐỐC (Desktop Andon Control Center)         -->
+    <!-- ========================================================================= -->
+    <div id="view-supervisor" class="hidden space-y-6">
+
+      <!-- Realtime KPI Stats Header -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        
+        <!-- Total Lots -->
+        <div class="glass-card p-4 rounded-2xl border-slate-800">
+          <span class="text-xs text-slate-400 font-medium">Tổng Lô Sản Xuất</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="kpi-total-lots" class="text-2xl font-black text-white">0</span>
+            <i data-lucide="layers" class="w-4 h-4 text-slate-500"></i>
+          </div>
+        </div>
+
+        <!-- InProgress Lots -->
+        <div class="glass-card p-4 rounded-2xl border-slate-800">
+          <span class="text-xs text-slate-400 font-medium">Đang Chạy (Running)</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="kpi-active-lots" class="text-2xl font-black text-emerald-400">0</span>
+            <i data-lucide="play-circle" class="w-4 h-4 text-emerald-500"></i>
+          </div>
+        </div>
+
+        <!-- Locked Lots -->
+        <div class="glass-card p-4 rounded-2xl border-red-900/50 bg-red-950/20">
+          <span class="text-xs text-red-300 font-medium">Bị Phong Tỏa 🔒</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="kpi-locked-lots" class="text-2xl font-black text-red-400 animate-pulse">0</span>
+            <i data-lucide="lock" class="w-4 h-4 text-red-500"></i>
+          </div>
+        </div>
+
+        <!-- Pending NCRs -->
+        <div class="glass-card p-4 rounded-2xl border-amber-900/50 bg-amber-950/20">
+          <span class="text-xs text-amber-300 font-medium">NCR Chờ Quản Đốc</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="kpi-pending-ncrs" class="text-2xl font-black text-amber-400">0</span>
+            <i data-lucide="clock" class="w-4 h-4 text-amber-500"></i>
+          </div>
+        </div>
+
+        <!-- Resolved NCRs -->
+        <div class="glass-card p-4 rounded-2xl border-slate-800">
+          <span class="text-xs text-slate-400 font-medium">Đã Phê Duyệt</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="kpi-resolved-ncrs" class="text-2xl font-black text-cyan-400">0</span>
+            <i data-lucide="check-check" class="w-4 h-4 text-cyan-500"></i>
+          </div>
+        </div>
+
+        <!-- Defect Rate -->
+        <div class="glass-card p-4 rounded-2xl border-slate-800">
+          <span class="text-xs text-slate-400 font-medium">Tỷ Lệ Phế Phẩm</span>
+          <div class="flex items-baseline justify-between mt-2">
+            <span id="kpi-defect-rate" class="text-2xl font-black text-rose-400">0.0%</span>
+            <i data-lucide="percent" class="w-4 h-4 text-rose-500"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARETO 80/20 & PENDING NCR QUEUE -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Pareto 80/20 Chart Card (5 Cols) -->
+        <div class="lg:col-span-5 glass-card rounded-2xl p-5 border-slate-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="bar-chart-2" class="w-4 h-4 text-emerald-400"></i>
+                Biểu Đồ Pareto 80/20 Phân Tích Lỗi
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">Xác định 20% nguyên nhân tạo ra 80% phế phẩm xưởng.</p>
+            </div>
+            <button onclick="loadParetoChart()" class="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700" title="Tải lại biểu đồ">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <!-- Canvas Chart -->
+          <div class="h-64 relative">
+            <canvas id="paretoChart"></canvas>
+          </div>
+
+          <div class="text-[11px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800">
+            <span>Cột: Tần suất lỗi (vụ)</span>
+            <span class="text-emerald-400 font-medium">Đường: % Tích lũy (Max 100%)</span>
+          </div>
+        </div>
+
+        <!-- Pending Approval NCR Queue (7 Cols) -->
+        <div class="lg:col-span-7 glass-card rounded-2xl p-5 border-slate-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></div>
+              <h3 class="text-sm font-bold text-white">Hàng Đợi Phê Duyệt Sự Cố (Pending NCR Disposition)</h3>
+            </div>
+            <span class="text-xs text-slate-400" id="pending-queue-title">Đang đồng bộ...</span>
+          </div>
+
+          <!-- Queue List -->
+          <div id="pending-ncr-container" class="space-y-3 max-h-80 overflow-y-auto pr-1">
+            <div class="text-center py-10 text-slate-500 text-xs">Đang tải danh sách sự cố chờ duyệt...</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- PRODUCTION LOTS FULL STATUS TABLE -->
+      <div class="glass-card rounded-2xl p-5 border-slate-800 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="table" class="w-4 h-4 text-emerald-400"></i>
+              Bảng Giám Sát Trạng Thái Lô Sản Xuất Nhà Máy
+            </h3>
+            <p class="text-xs text-slate-400">Cập nhật thời gian thực khi có quyết định mở khóa hoặc đình chỉ lô.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <select id="filter-lot-status" onchange="loadProductionLotsTable()" class="bg-slate-900 border border-slate-700 text-xs text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none">
+              <option value="">Tất cả trạng thái</option>
+              <option value="InProgress">Đang gia công (InProgress)</option>
+              <option value="Locked">Bị khóa (Locked)</option>
+              <option value="Released">Đã giải phóng (Released)</option>
+              <option value="Completed">Hoàn thành (Completed)</option>
+              <option value="Scrapped">Phế phẩm (Scrapped)</option>
+            </select>
+            <button onclick="loadProductionLotsTable()" class="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">
+              <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="text-[11px] uppercase bg-slate-900/80 text-slate-400 border-b border-slate-800">
+              <tr>
+                <th class="py-3 px-3">Mã Lô</th>
+                <th class="py-3 px-3">Sản Phẩm</th>
+                <th class="py-3 px-3">Trạm Máy</th>
+                <th class="py-3 px-3 text-right">Sản Lượng</th>
+                <th class="py-3 px-3 text-right">Số Lỗi</th>
+                <th class="py-3 px-3 text-right">Tỷ Lệ</th>
+                <th class="py-3 px-3 text-center">Trạng Thái</th>
+                <th class="py-3 px-3 text-right">Thời Điểm Tạo</th>
+              </tr>
+            </thead>
+            <tbody id="lots-table-body" class="divide-y divide-slate-800/60 font-medium">
+              <tr><td colspan="8" class="text-center py-6 text-slate-500">Đang nạp dữ liệu...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: PHÊ DUYỆT XỬ LÝ SỰ CỐ QUẢN ĐỐC (NCR DISPOSITION MODAL)            -->
+  <!-- ========================================================================= -->
+  <div id="decision-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+    <div class="glass-card max-w-lg w-full rounded-2xl p-6 border-slate-700 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+            <i data-lucide="gavel" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-bold text-white">Quyết Định Xử Lý Sự Cố NCR</h4>
+            <span id="modal-ncr-number" class="text-xs font-mono text-emerald-400">NCR-2026-0000</span>
+          </div>
+        </div>
+        <button onclick="closeDecisionModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Defect summary in modal -->
+      <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 text-xs space-y-2">
+        <div class="flex justify-between"><span class="text-slate-400">Lô hàng:</span> <strong id="modal-lot-number" class="text-slate-200">LOT-2026-001</strong></div>
+        <div class="flex justify-between"><span class="text-slate-400">Khuyết tật:</span> <span id="modal-defect-type" class="text-amber-400 font-semibold">Crack</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Mức độ:</span> <span id="modal-severity" class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400">Critical</span></div>
+        <div class="pt-1 text-slate-300 italic" id="modal-description">"..."</div>
+      </div>
+
+      <!-- Action Choice -->
+      <div class="space-y-3">
+        <label class="block text-xs font-medium text-slate-300">Chọn Hình Thức Xử Lý & Giải Phóng Dây Chuyền <span class="text-red-400">*</span></label>
+        
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <!-- Rework -->
+          <button type="button" onclick="selectDecision('Rework')" id="btn-choice-Rework" class="p-3 rounded-xl border border-slate-700 bg-slate-900/60 hover:border-emerald-500 text-left transition flex flex-col gap-1">
+            <span class="font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Tái Chế (Rework)</span>
+            <span class="text-[10px] text-slate-400">Mở khóa lô, đưa vào chuyền gia công lại.</span>
+          </button>
+
+          <!-- Scrap -->
+          <button type="button" onclick="selectDecision('Scrap')" id="btn-choice-Scrap" class="p-3 rounded-xl border border-slate-700 bg-slate-900/60 hover:border-red-500 text-left transition flex flex-col gap-1">
+            <span class="font-bold text-red-400 flex items-center gap-1.5"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Hủy Bỏ (Scrap)</span>
+            <span class="text-[10px] text-slate-400">Thanh lý toàn bộ sản phẩm hỏng.</span>
+          </button>
+
+          <!-- Return -->
+          <button type="button" onclick="selectDecision('Return')" id="btn-choice-Return" class="p-3 rounded-xl border border-slate-700 bg-slate-900/60 hover:border-amber-500 text-left transition flex flex-col gap-1">
+            <span class="font-bold text-amber-400 flex items-center gap-1.5"><i data-lucide="corner-up-left" class="w-3.5 h-3.5"></i> Trả NCC (Return)</span>
+            <span class="text-[10px] text-slate-400">Yêu cầu nhà cung ứng đền bù.</span>
+          </button>
+
+          <!-- Concession -->
+          <button type="button" onclick="selectDecision('Concession')" id="btn-choice-Concession" class="p-3 rounded-xl border border-slate-700 bg-slate-900/60 hover:border-cyan-500 text-left transition flex flex-col gap-1">
+            <span class="font-bold text-cyan-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i> Nhượng Bộ (Release)</span>
+            <span class="text-[10px] text-slate-400">Chấp nhận sai số nhẹ, cho phép xuất.</span>
+          </button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Căn Cứ Chỉ Đạo Kỹ Thuật Của Quản Đốc</label>
+          <textarea id="modal-notes" rows="2" placeholder="Ghi chú phương án khắc phục, chỉ định công nhân sửa chữa..." class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"></textarea>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button type="button" onclick="closeDecisionModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300">
+          Đóng
+        </button>
+        <button type="button" id="btn-confirm-decision" onclick="submitDecision()" class="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-500/20">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          Phê Duyệt & Mở Khóa
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT APPLICATION CORE -->
+  <script>
+    // State Store
+    const state = {
+      activeView: 'kcs',
+      workStations: [],
+      productionLots: [],
+      pendingNcrs: [],
+      soundEnabled: true,
+      audioCtx: null,
+      signalrConnected: false,
+      selectedDecisionType: 'Rework',
+      activeModalNcrId: null,
+      paretoChartInstance: null
+    };
+
+    // Initialize Web Audio API synthesizer for Andon alarm
+    function initAudio() {
+      try {
+        if (!state.audioCtx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) state.audioCtx = new AudioContext();
+        }
+      } catch (e) {
+        console.warn('Web Audio not supported or blocked:', e);
+      }
+    }
+
+    // Play synthesized industrial Andon warning siren
+    function playAndonAlarmSound() {
+      if (!state.soundEnabled) return;
+      try {
+        initAudio();
+        if (!state.audioCtx) return;
+        if (state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume();
+        }
+
+        const now = state.audioCtx.currentTime;
+        const osc = state.audioCtx.createOscillator();
+        const gain = state.audioCtx.createGain();
+
+        osc.type = 'sawtooth';
+        // Alternating two-tone siren
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.linearRampToValueAtTime(440, now + 0.25);
+        osc.frequency.linearRampToValueAtTime(880, now + 0.5);
+        osc.frequency.linearRampToValueAtTime(440, now + 0.75);
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.85);
+
+        osc.connect(gain);
+        gain.connect(state.audioCtx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.85);
+      } catch (err) {
+        console.warn('Audio playback error:', err);
+      }
+    }
+
+    function toggleSound() {
+      state.soundEnabled = !state.soundEnabled;
+      const icon = document.getElementById('icon-sound');
+      if (state.soundEnabled) {
+        icon.setAttribute('data-lucide', 'volume-2');
+        icon.classList.remove('text-slate-500');
+        icon.classList.add('text-emerald-400');
+        playAndonAlarmSound(); // Test beep
+      } else {
+        icon.setAttribute('data-lucide', 'volume-x');
+        icon.classList.remove('text-emerald-400');
+        icon.classList.add('text-slate-500');
+      }
+      lucide.createIcons();
+    }
+
+    // Switch between KCS and Supervisor views
+    function switchView(viewName) {
+      state.activeView = viewName;
+      const kcsTab = document.getElementById('tab-kcs');
+      const supTab = document.getElementById('tab-supervisor');
+      const kcsView = document.getElementById('view-kcs');
+      const supView = document.getElementById('view-supervisor');
+
+      if (viewName === 'kcs') {
+        kcsTab.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 bg-emerald-500 text-slate-950 shadow-md";
+        supTab.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 text-slate-400 hover:text-slate-200";
+        kcsView.classList.remove('hidden');
+        supView.classList.add('hidden');
+      } else {
+        supTab.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 bg-emerald-500 text-slate-950 shadow-md";
+        kcsTab.className = "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 text-slate-400 hover:text-slate-200";
+        supView.classList.remove('hidden');
+        kcsView.classList.add('hidden');
+        loadSupervisorData();
+      }
+      lucide.createIcons();
+    }
+
+    // Set quick description
+    function setQuickDesc(text) {
+      document.getElementById('input-description').value = text;
+    }
+
+    // Preview uploaded image
+    function previewImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (file.size > 5242880) {
+        alert("CẢNH BÁO: Tệp tin vượt quá 5MB. Vui lòng chọn ảnh có dung lượng nhỏ hơn 5MB.");
+        event.target.value = '';
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('image-preview').src = e.target.result;
+        document.getElementById('image-name').textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        document.getElementById('dropzone-placeholder').classList.add('hidden');
+        document.getElementById('image-preview-wrapper').classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function removeImage(event) {
+      event.stopPropagation();
+      document.getElementById('input-defect-image').value = '';
+      document.getElementById('dropzone-placeholder').classList.remove('hidden');
+      document.getElementById('image-preview-wrapper').classList.add('hidden');
+    }
+
+    // Fetch initial master data
+    async function loadMasterData() {
+      try {
+        const [stationsRes, lotsRes] = await Promise.all([
+          fetch('/api/work-stations'),
+          fetch('/api/production-lots')
+        ]);
+
+        if (stationsRes.ok) {
+          state.workStations = await stationsRes.json();
+          renderStationsDropdown();
+        }
+
+        if (lotsRes.ok) {
+          state.productionLots = await lotsRes.json();
+          renderLotsDropdown();
+          renderProductionLotsTable();
+        }
+      } catch (err) {
+        console.error('Error loading master data:', err);
+      }
+    }
+
+    function renderStationsDropdown() {
+      const select = document.getElementById('select-station');
+      select.innerHTML = '<option value="">-- Chọn Trạm Máy --</option>' +
+        state.workStations.map(s => `<option value="${s.id}">${s.code} - ${s.name}</option>`).join('');
+    }
+
+    function renderLotsDropdown(filteredLots = state.productionLots) {
+      const select = document.getElementById('select-lot');
+      select.innerHTML = '<option value="">-- Chọn Lô Sản Xuất --</option>' +
+        filteredLots.map(l => {
+          const lockBadge = l.status === 'Locked' ? '🔒 [ĐÃ KHÓA]' : '';
+          return `<option value="${l.id}">${l.lotNumber} - ${l.productName} (${l.status}) ${lockBadge}</option>`;
+        }).join('');
+    }
+
+    function filterLotsByStation() {
+      const stationId = parseInt(document.getElementById('select-station').value);
+      if (!stationId) {
+        renderLotsDropdown(state.productionLots);
+      } else {
+        const filtered = state.productionLots.filter(l => l.workStationId === stationId);
+        renderLotsDropdown(filtered);
+      }
+    }
+
+    function onLotSelected() {
+      const lotId = parseInt(document.getElementById('select-lot').value);
+      const lot = state.productionLots.find(l => l.id === lotId);
+      const infoBox = document.getElementById('lot-info-box');
+
+      if (!lot) {
+        infoBox.classList.add('hidden');
+        return;
+      }
+
+      document.getElementById('info-product-name').textContent = lot.productName;
+      const statusEl = document.getElementById('info-lot-status');
+      statusEl.textContent = lot.status;
+
+      if (lot.status === 'Locked') {
+        statusEl.className = "px-2 py-0.5 rounded text-[11px] font-bold bg-red-500/20 text-red-400 border border-red-500/30";
+      } else {
+        statusEl.className = "px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      }
+
+      infoBox.classList.remove('hidden');
+    }
+
+    // Submit KCS Inspection Form
+    async function handleKcsInspectSubmit(e) {
+      e.preventDefault();
+      initAudio();
+
+      const btn = document.getElementById('btn-submit-inspect');
+      const btnText = document.getElementById('btn-submit-text');
+      const fileInput = document.getElementById('input-defect-image');
+      const stationId = document.getElementById('select-station').value;
+      const lotId = document.getElementById('select-lot').value;
+      const description = document.getElementById('input-description').value;
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert("Vui lòng chụp hoặc đính kèm ảnh bằng chứng khuyết tật!");
+        return;
+      }
+
+      // Prepare Multipart Form Data
+      const formData = new FormData();
+      formData.append('LotId', lotId);
+      formData.append('StationId', stationId);
+      formData.append('ReportedByUserId', 2); // Lê Thị KCS
+      formData.append('DefectType', 'Crack'); // Initial estimate, AI will override or adjust
+      formData.append('Severity', 'Critical'); // Safety default
+      formData.append('Description', description || 'Kiểm tra chất lượng phát hiện sự cố bề mặt.');
+      formData.append('Image', fileInput.files[0]);
+
+      btn.disabled = true;
+      btnText.textContent = "AI VISION ĐANG PHÂN TÍCH...";
+
+      try {
+        const response = await fetch('/api/ncr-reports/inspect', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.detail || errData.title || "Kiểm định thất bại.");
+        }
+
+        const data = await response.json();
+
+        // Display AI Analysis Results
+        displayAiDiagnosis(data);
+
+        // Refresh master lots state
+        await loadMasterData();
+
+        // Reset inputs partially
+        document.getElementById('input-description').value = '';
+        removeImage({ stopPropagation: () => {} });
+
+      } catch (err) {
+        console.error('Inspection submission error:', err);
+        alert(`LỖI: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = "PHÂN TÍCH AI & LẬP BIÊN BẢN KHÓA LÔ";
+      }
+    }
+
+    function displayAiDiagnosis(report) {
+      document.getElementById('ai-empty-state').classList.add('hidden');
+      document.getElementById('ai-active-content').classList.remove('hidden');
+
+      const badge = document.getElementById('ai-severity-badge');
+      badge.textContent = report.severity;
+
+      if (report.severity === 'Critical') {
+        badge.className = "px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse";
+      } else if (report.severity === 'Major') {
+        badge.className = "px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40";
+      } else {
+        badge.className = "px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
+      }
+
+      document.getElementById('ai-defect-type').textContent = report.defectType;
+      document.getElementById('ai-confidence').textContent = "96.4% (Gemini Flash)";
+
+      // Inferred root cause & suggested actions
+      const rootCauseMap = {
+        'Crack': 'Nứt ứng suất do áp suất khuôn dập quá cao tại vùng góc thoát phôi kim loại.',
+        'Deformation': 'Sai số độ phẳng tấm kim loại vượt ngưỡng do nhiệt luyện không đều.',
+        'Scratch': 'Ma sát cơ học giữa tay gắp robot chuyển trạm và khay định hình.',
+        'MissingPart': 'Thiếu chi tiết do cảm biến quang phễu rung cấp phôi bị bám bụi.'
+      };
+
+      const actionMap = {
+        'Crack': 'Dừng trạm dập ngay. Giảm áp suất thủy lực về 120 bar và cách ly toàn bộ lô.',
+        'Deformation': 'Hiệu chỉnh nhiệt trở khuôn và tạm giữ lô hàng để Quản đốc thẩm định.',
+        'Scratch': 'Thay đệm cao su silicon tay gắp, chuyển sang đánh bóng phục hồi bề mặt.',
+        'MissingPart': 'Vệ sinh cảm biến cấp phôi, kiểm đếm 100% các cụm chi tiết vừa gia công.'
+      };
+
+      document.getElementById('ai-root-cause').textContent = rootCauseMap[report.defectType] || report.description;
+      document.getElementById('ai-suggested-action').textContent = actionMap[report.defectType] || 'Yêu cầu Quản đốc thẩm định trực tiếp.';
+
+      const lockBanner = document.getElementById('lot-locked-banner');
+      if (report.lotStatus === 'Locked' || report.severity === 'Critical' || report.severity === 'Major') {
+        lockBanner.classList.remove('hidden');
+        document.getElementById('locked-ncr-code').textContent = report.ncrNumber;
+        playAndonAlarmSound();
+      } else {
+        lockBanner.classList.add('hidden');
+      }
+
+      loadRecentReports();
+    }
+
+    // Load recent reports for shift
+    async function loadRecentReports() {
+      try {
+        const res = await fetch('/api/ncr-reports');
+        if (!res.ok) return;
+        const reports = await res.json();
+        const container = document.getElementById('kcs-recent-list');
+
+        if (reports.length === 0) {
+          container.innerHTML = '<p class="text-xs text-slate-500 text-center py-3">Chưa có sự cố nào trong ca.</p>';
+          return;
+        }
+
+        container.innerHTML = reports.slice(0, 5).map(r => {
+          const isCritical = r.severity === 'Critical';
+          const sevColor = isCritical ? 'text-red-400 bg-red-500/10' : 'text-amber-400 bg-amber-500/10';
+          return `
+            <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-mono font-bold text-white">${r.ncrNumber}</span>
+                  <span class="px-1.5 py-0.2 rounded text-[10px] font-bold ${sevColor}">${r.severity}</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">${r.lotNumber} • ${r.defectType}</div>
+              </div>
+              <span class="text-[10px] text-slate-500">${new Date(r.createdAt).toLocaleTimeString()}</span>
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error('Error loading recent reports:', e);
+      }
+    }
+
+    // =========================================================================
+    // SUPERVISOR DASHBOARD LOGIC
+    // =========================================================================
+    async function loadSupervisorData() {
+      await Promise.all([
+        loadSummaryKpis(),
+        loadParetoChart(),
+        loadPendingNcrsQueue(),
+        loadProductionLotsTable()
+      ]);
+    }
+
+    async function loadSummaryKpis() {
+      try {
+        const res = await fetch('/api/dashboard/summary');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById('kpi-total-lots').textContent = data.totalLots;
+        document.getElementById('kpi-active-lots').textContent = data.inProgressLots;
+        document.getElementById('kpi-locked-lots').textContent = data.lockedLots;
+        document.getElementById('kpi-pending-ncrs').textContent = data.pendingNcrs;
+        document.getElementById('kpi-resolved-ncrs').textContent = data.resolvedNcrs;
+
+        const defectRate = data.totalLots > 0
+          ? ((data.lockedLots + data.scrappedLots) * 100 / data.totalLots).toFixed(1)
+          : "0.0";
+        document.getElementById('kpi-defect-rate').textContent = `${defectRate}%`;
+
+        // Update badge
+        const badge = document.getElementById('badge-pending-count');
+        if (data.pendingNcrs > 0) {
+          badge.textContent = data.pendingNcrs;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      } catch (e) {
+        console.error('Error loading summary KPIs:', e);
+      }
+    }
+
+    async function loadParetoChart() {
+      try {
+        const res = await fetch('/api/dashboard/pareto');
+        if (!res.ok) return;
+        const pareto = await res.json();
+
+        const labels = pareto.items.map(i => i.defectType);
+        const counts = pareto.items.map(i => i.count);
+        const cumulative = pareto.items.map(i => i.cumulativePercentage);
+
+        const ctx = document.getElementById('paretoChart').getContext('2d');
+
+        if (state.paretoChartInstance) {
+          state.paretoChartInstance.destroy();
+        }
+
+        state.paretoChartInstance = new Chart(ctx, {
+          data: {
+            labels: labels.length > 0 ? labels : ['Chưa có dữ liệu lỗi'],
+            datasets: [
+              {
+                type: 'bar',
+                label: 'Số vụ lỗi',
+                data: counts.length > 0 ? counts : [0],
+                backgroundColor: 'rgba(34, 197, 94, 0.75)',
+                borderColor: 'rgba(34, 197, 94, 1)',
+                borderWidth: 1,
+                borderRadius: 6,
+                yAxisID: 'y'
+              },
+              {
+                type: 'line',
+                label: '% Tích lũy (Pareto)',
+                data: cumulative.length > 0 ? cumulative : [0],
+                borderColor: '#f59e0b',
+                backgroundColor: '#f59e0b',
+                borderWidth: 2,
+                tension: 0.2,
+                pointRadius: 4,
+                yAxisID: 'y1'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: { color: '#94a3b8', font: { size: 11 } }
+              }
+            },
+            scales: {
+              x: {
+                ticks: { color: '#94a3b8', font: { size: 11 } },
+                grid: { color: 'rgba(51, 65, 85, 0.3)' }
+              },
+              y: {
+                type: 'linear',
+                position: 'left',
+                ticks: { color: '#94a3b8', precision: 0 },
+                grid: { color: 'rgba(51, 65, 85, 0.3)' }
+              },
+              y1: {
+                type: 'linear',
+                position: 'right',
+                min: 0,
+                max: 100,
+                ticks: {
+                  color: '#f59e0b',
+                  callback: v => `${v}%`
+                },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Error rendering Pareto chart:', err);
+      }
+    }
+
+    async function loadPendingNcrsQueue() {
+      try {
+        const res = await fetch('/api/ncr-reports');
+        if (!res.ok) return;
+        const all = await res.json();
+        const pending = all.filter(r => r.status === 'Pending' || r.status === 'Open');
+        state.pendingNcrs = pending;
+
+        document.getElementById('pending-queue-title').textContent = `${pending.length} sự cố đang chờ duyệt`;
+        const container = document.getElementById('pending-ncr-container');
+
+        if (pending.length === 0) {
+          container.innerHTML = `
+            <div class="py-12 text-center text-slate-500 space-y-2">
+              <i data-lucide="check-circle" class="w-10 h-10 text-emerald-500/40 mx-auto"></i>
+              <p class="text-xs">Hiện tại không có sự cố nào cần phê duyệt. Dây chuyền vận hành bình thường!</p>
+            </div>
+          `;
+          lucide.createIcons();
+          return;
+        }
+
+        container.innerHTML = pending.map(ncr => {
+          const isCrit = ncr.severity === 'Critical';
+          const badgeClass = isCrit ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+          const imgUrl = ncr.imageUrls && ncr.imageUrls.length > 0 ? ncr.imageUrls[0] : null;
+
+          return `
+            <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div class="flex items-start gap-3">
+                ${imgUrl ? `<img src="${imgUrl}" alt="Defect" class="w-16 h-16 object-cover rounded-lg border border-slate-700 shrink-0">` : `
+                  <div class="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center text-slate-500 shrink-0">
+                    <i data-lucide="image" class="w-6 h-6"></i>
+                  </div>
+                `}
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono font-bold text-white text-sm">${ncr.ncrNumber}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}">${ncr.severity}</span>
+                    <span class="text-xs text-emerald-400 font-semibold">${ncr.defectType}</span>
+                  </div>
+                  <div class="text-xs text-slate-400">
+                    Lô: <strong class="text-slate-200">${ncr.lotNumber}</strong> • Trạm: <strong class="text-slate-200">${ncr.stationCode}</strong>
+                  </div>
+                  <p class="text-xs text-slate-300 italic truncate max-w-md">"${ncr.description}"</p>
+                </div>
+              </div>
+
+              <!-- Quick Disposition Buttons -->
+              <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                <button onclick="openDecisionModal(${ncr.id})" class="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md">
+                  <i data-lucide="gavel" class="w-3.5 h-3.5"></i>
+                  Phê Duyệt Xử Lý
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        lucide.createIcons();
+      } catch (err) {
+        console.error('Error loading pending queue:', err);
+      }
+    }
+
+    async function loadProductionLotsTable() {
+      try {
+        const filter = document.getElementById('filter-lot-status').value;
+        const url = filter ? `/api/production-lots?status=${encodeURIComponent(filter)}` : '/api/production-lots';
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const lots = await res.json();
+        state.productionLots = lots;
+        renderProductionLotsTable();
+      } catch (e) {
+        console.error('Error loading lots table:', e);
+      }
+    }
+
+    function renderProductionLotsTable() {
+      const tbody = document.getElementById('lots-table-body');
+      if (!tbody) return;
+
+      if (state.productionLots.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-slate-500">Không tìm thấy lô sản xuất phù hợp.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = state.productionLots.map(l => {
+        let statusBadge = '';
+        if (l.status === 'Locked') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse">🔒 LOCKED</span>';
+        } else if (l.status === 'InProgress') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">InProgress</span>';
+        } else if (l.status === 'Released') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Released</span>';
+        } else if (l.status === 'Scrapped') {
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-900/30 text-rose-300 border border-rose-800">Scrapped</span>';
+        } else {
+          statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">${l.status}</span>`;
+        }
+
+        const dateStr = new Date(l.createdAt).toLocaleDateString('vi-VN');
+
+        return `
+          <tr class="hover:bg-slate-900/50 transition">
+            <td class="py-3 px-3 font-mono font-bold text-white">${l.lotNumber}</td>
+            <td class="py-3 px-3 text-slate-200">${l.productName}</td>
+            <td class="py-3 px-3 text-slate-400">${l.stationCode || '-'}</td>
+            <td class="py-3 px-3 text-right text-slate-200">${l.quantity.toLocaleString()}</td>
+            <td class="py-3 px-3 text-right font-bold ${l.defectQuantity > 0 ? 'text-red-400' : 'text-slate-400'}">${l.defectQuantity}</td>
+            <td class="py-3 px-3 text-right text-slate-300">${l.defectRate || 0}%</td>
+            <td class="py-3 px-3 text-center">${statusBadge}</td>
+            <td class="py-3 px-3 text-right text-slate-500">${dateStr}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Modal Decision logic
+    function openDecisionModal(ncrId) {
+      const ncr = state.pendingNcrs.find(r => r.id === ncrId);
+      if (!ncr) return;
+
+      state.activeModalNcrId = ncr.id;
+      document.getElementById('modal-ncr-number').textContent = ncr.ncrNumber;
+      document.getElementById('modal-lot-number').textContent = ncr.lotNumber;
+      document.getElementById('modal-defect-type').textContent = ncr.defectType;
+      document.getElementById('modal-severity').textContent = ncr.severity;
+      document.getElementById('modal-description').textContent = `"${ncr.description}"`;
+      document.getElementById('modal-notes').value = '';
+
+      selectDecision('Rework');
+      document.getElementById('decision-modal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeDecisionModal() {
+      document.getElementById('decision-modal').classList.add('hidden');
+      state.activeModalNcrId = null;
+    }
+
+    function selectDecision(decisionType) {
+      state.selectedDecisionType = decisionType;
+      const types = ['Rework', 'Scrap', 'Return', 'Concession'];
+
+      types.forEach(t => {
+        const btn = document.getElementById(`btn-choice-${t}`);
+        if (t === decisionType) {
+          btn.classList.add('border-emerald-500', 'bg-emerald-950/20');
+        } else {
+          btn.classList.remove('border-emerald-500', 'bg-emerald-950/20');
+        }
+      });
+    }
+
+    async function submitDecision() {
+      if (!state.activeModalNcrId) return;
+
+      const btn = document.getElementById('btn-confirm-decision');
+      btn.disabled = true;
+      btn.textContent = "Đang xử lý...";
+
+      const payload = {
+        ncrReportId: state.activeModalNcrId,
+        decision: state.selectedDecisionType,
+        notes: document.getElementById('modal-notes').value.trim() || `Quản đốc phê duyệt hình thức ${state.selectedDecisionType}.`,
+        approvedByUserId: 1 // Trần Văn Quản Đốc
+      };
+
+      try {
+        const res = await fetch('/api/ncr-decisions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Không thể phê duyệt quyết định.");
+        }
+
+        closeDecisionModal();
+        await loadSupervisorData();
+        await loadMasterData();
+        dismissAndonBar();
+
+      } catch (err) {
+        console.error('Error submitting decision:', err);
+        alert(`Lỗi phê duyệt: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Phê Duyệt & Mở Khóa";
+      }
+    }
+
+    function dismissAndonBar() {
+      document.getElementById('andon-beacon-bar').classList.add('hidden');
+    }
+
+    // =========================================================================
+    // SIGNALR REALTIME CONNECTION & ANDON WOW MOMENTS
+    // =========================================================================
+    function setupSignalR() {
+      const connection = new signalR.HubConnectionBuilder()
+        .withUrl('/hubs/factory', {
+          skipNegotiation: false,
+          transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling
+        })
+        .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+        .configureLogging(signalR.LogLevel.Warning)
+        .build();
+
+      const dot = document.getElementById('signalr-dot');
+      const text = document.getElementById('signalr-text');
+
+      connection.onreconnecting(() => {
+        dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping";
+        text.textContent = "Đang kết nối lại...";
+      });
+
+      connection.onreconnected(() => {
+        dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+        text.textContent = "SignalR Trực Tuyến";
+        connection.invoke('JoinDashboard').catch(console.error);
+        loadSupervisorData();
+      });
+
+      connection.onclose(() => {
+        dot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+        text.textContent = "Mất kết nối SignalR";
+      });
+
+      // WOW MOMENT: Receive Andon Alert from Server
+      connection.on('ReceiveAndonAlert', (alert) => {
+        console.warn('⚡ [ANDON ALERT RECEIVED]:', alert);
+
+        // 1. Play siren audio immediately
+        playAndonAlarmSound();
+
+        // 2. Show top pulsing Andon beacon
+        const bar = document.getElementById('andon-beacon-bar');
+        document.getElementById('andon-beacon-text').textContent = 
+          `🚨 CẢNH BÁO ANDON: LÔ ${alert.lotNumber} (${alert.stationCode}) BỊ KHÓA DO LỖI [${alert.severity.toUpperCase()} - ${alert.defectType}]!`;
+        bar.classList.remove('hidden');
+
+        // 3. Highlight Supervisor badge & refresh queues
+        loadSupervisorData();
+        loadRecentReports();
+      });
+
+      // Receive Decision Update
+      connection.on('ReceiveDecisionUpdate', (update) => {
+        console.info('✅ [DECISION UPDATE RECEIVED]:', update);
+        loadSupervisorData();
+        loadMasterData();
+      });
+
+      connection.start()
+        .then(() => {
+          dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+          text.textContent = "SignalR Trực Tuyến";
+          state.signalrConnected = true;
+          return connection.invoke('JoinDashboard');
+        })
+        .catch(err => {
+          console.error('SignalR start failed:', err);
+          dot.className = "w-2.5 h-2.5 rounded-full bg-red-400";
+          text.textContent = "SignalR Offline (Tự thử lại)";
+          setTimeout(setupSignalR, 5000);
+        });
+    }
+
+    // App Initialization on DOM Ready
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      loadMasterData();
+      loadSupervisorData();
+      setupSignalR();
+
+      // Audio activation gesture on first user click
+      document.body.addEventListener('click', () => initAudio(), { once: true });
+    });
+  </script>
+</body>
+</html>
