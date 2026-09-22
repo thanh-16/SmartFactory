@@ -28,8 +28,8 @@ public class NcrService : INcrService
     {
         // 1. Verify existence of related entities
         var lot = await _context.ProductionLots
-            .Include(l => l.WorkStation)
-            .FirstOrDefaultAsync(l => l.Id == request.LotId, ct);
+            .Include(productionLot => productionLot.WorkStation)
+            .FirstOrDefaultAsync(productionLot => productionLot.Id == request.LotId, ct);
 
         if (lot == null)
         {
@@ -37,7 +37,8 @@ public class NcrService : INcrService
         }
 
         var station = await _context.WorkStations
-            .FirstOrDefaultAsync(s => s.Id == request.StationId, ct);
+            .AsNoTracking()
+            .FirstOrDefaultAsync(stationEntity => stationEntity.Id == request.StationId, ct);
 
         if (station == null)
         {
@@ -45,7 +46,8 @@ public class NcrService : INcrService
         }
 
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == request.ReportedByUserId, ct);
+            .AsNoTracking()
+            .FirstOrDefaultAsync(userEntity => userEntity.Id == request.ReportedByUserId, ct);
 
         if (user == null)
         {
@@ -201,9 +203,9 @@ public class NcrService : INcrService
         try
         {
             ncr = await _context.NcrReports
-                .Include(r => r.ProductionLot)
-                .Include(r => r.Decisions)
-                .FirstOrDefaultAsync(r => r.Id == request.NcrReportId, ct)
+                .Include(report => report.ProductionLot)
+                .Include(report => report.Decisions)
+                .FirstOrDefaultAsync(report => report.Id == request.NcrReportId, ct)
                 ?? throw new NotFoundException($"NCR Report with ID {request.NcrReportId} not found.");
 
             // Idempotency check: Cannot re-resolve an already resolved NCR
@@ -213,7 +215,8 @@ public class NcrService : INcrService
             }
 
             user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Id == request.ApprovedByUserId, ct)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(userEntity => userEntity.Id == request.ApprovedByUserId, ct)
                 ?? throw new NotFoundException($"User with ID {request.ApprovedByUserId} not found.");
 
             if (!user.Role.Equals("Supervisor", StringComparison.OrdinalIgnoreCase) && 
@@ -225,7 +228,7 @@ public class NcrService : INcrService
             lot = ncr.ProductionLot;
             if (lot == null)
             {
-                lot = await _context.ProductionLots.FirstOrDefaultAsync(l => l.Id == ncr.ProductionLotId, ct);
+                lot = await _context.ProductionLots.FirstOrDefaultAsync(lotEntity => lotEntity.Id == ncr.ProductionLotId, ct);
             }
 
             if (lot != null)
@@ -259,9 +262,9 @@ public class NcrService : INcrService
             await _context.NcrDecisions.AddAsync(decision, ct);
             await _context.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException ex)
+        catch (DbUpdateException dbException)
         {
-            throw new ConflictException($"NCR Report with ID {request.NcrReportId} has already been resolved.", ex);
+            throw new ConflictException($"NCR Report with ID {request.NcrReportId} has already been resolved.", dbException);
         }
         finally
         {
@@ -314,62 +317,63 @@ public class NcrService : INcrService
     public async Task<List<NcrReportResponse>> GetAllReportsAsync(CancellationToken ct = default)
     {
         var reports = await _context.NcrReports
-            .Include(r => r.ProductionLot)
-            .Include(r => r.WorkStation)
-            .Include(r => r.ReportedByUser)
-            .Include(r => r.DefectImages)
+            .Include(report => report.ProductionLot)
+            .Include(report => report.WorkStation)
+            .Include(report => report.ReportedByUser)
+            .Include(report => report.DefectImages)
             .AsNoTracking()
-            .OrderByDescending(r => r.CreatedAt)
+            .OrderByDescending(report => report.CreatedAt)
             .ToListAsync(ct);
 
-        return reports.Select(r => new NcrReportResponse
+        return reports.Select(reportItem => new NcrReportResponse
         {
-            Id = r.Id,
-            NcrNumber = r.NcrNumber,
-            ProductionLotId = r.ProductionLotId,
-            LotNumber = r.ProductionLot?.LotNumber ?? string.Empty,
-            LotStatus = r.ProductionLot?.Status ?? string.Empty,
-            WorkStationId = r.WorkStationId,
-            StationCode = r.WorkStation?.Code ?? string.Empty,
-            ReportedByUserId = r.ReportedByUserId,
-            ReportedByName = r.ReportedByUser?.FullName ?? string.Empty,
-            DefectType = r.DefectType,
-            Severity = r.Severity,
-            Description = r.Description,
-            Status = r.Status,
-            CreatedAt = r.CreatedAt,
-            ImageUrls = r.DefectImages.Select(i => i.ImageUrl).ToList()
+            Id = reportItem.Id,
+            NcrNumber = reportItem.NcrNumber,
+            ProductionLotId = reportItem.ProductionLotId,
+            LotNumber = reportItem.ProductionLot?.LotNumber ?? string.Empty,
+            LotStatus = reportItem.ProductionLot?.Status ?? string.Empty,
+            WorkStationId = reportItem.WorkStationId,
+            StationCode = reportItem.WorkStation?.Code ?? string.Empty,
+            ReportedByUserId = reportItem.ReportedByUserId,
+            ReportedByName = reportItem.ReportedByUser?.FullName ?? string.Empty,
+            DefectType = reportItem.DefectType,
+            Severity = reportItem.Severity,
+            Description = reportItem.Description,
+            Status = reportItem.Status,
+            CreatedAt = reportItem.CreatedAt,
+            ImageUrls = reportItem.DefectImages.Select(img => img.ImageUrl).ToList()
         }).ToList();
     }
 
     public async Task<NcrReportResponse?> GetReportByIdAsync(int id, CancellationToken ct = default)
     {
-        var r = await _context.NcrReports
-            .Include(r => r.ProductionLot)
-            .Include(r => r.WorkStation)
-            .Include(r => r.ReportedByUser)
-            .Include(r => r.DefectImages)
-            .FirstOrDefaultAsync(r => r.Id == id, ct);
+        var ncrReport = await _context.NcrReports
+            .Include(report => report.ProductionLot)
+            .Include(report => report.WorkStation)
+            .Include(report => report.ReportedByUser)
+            .Include(report => report.DefectImages)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(report => report.Id == id, ct);
 
-        if (r == null) return null;
+        if (ncrReport == null) return null;
 
         return new NcrReportResponse
         {
-            Id = r.Id,
-            NcrNumber = r.NcrNumber,
-            ProductionLotId = r.ProductionLotId,
-            LotNumber = r.ProductionLot?.LotNumber ?? string.Empty,
-            LotStatus = r.ProductionLot?.Status ?? string.Empty,
-            WorkStationId = r.WorkStationId,
-            StationCode = r.WorkStation?.Code ?? string.Empty,
-            ReportedByUserId = r.ReportedByUserId,
-            ReportedByName = r.ReportedByUser?.FullName ?? string.Empty,
-            DefectType = r.DefectType,
-            Severity = r.Severity,
-            Description = r.Description,
-            Status = r.Status,
-            CreatedAt = r.CreatedAt,
-            ImageUrls = r.DefectImages.Select(i => i.ImageUrl).ToList()
+            Id = ncrReport.Id,
+            NcrNumber = ncrReport.NcrNumber,
+            ProductionLotId = ncrReport.ProductionLotId,
+            LotNumber = ncrReport.ProductionLot?.LotNumber ?? string.Empty,
+            LotStatus = ncrReport.ProductionLot?.Status ?? string.Empty,
+            WorkStationId = ncrReport.WorkStationId,
+            StationCode = ncrReport.WorkStation?.Code ?? string.Empty,
+            ReportedByUserId = ncrReport.ReportedByUserId,
+            ReportedByName = ncrReport.ReportedByUser?.FullName ?? string.Empty,
+            DefectType = ncrReport.DefectType,
+            Severity = ncrReport.Severity,
+            Description = ncrReport.Description,
+            Status = ncrReport.Status,
+            CreatedAt = ncrReport.CreatedAt,
+            ImageUrls = ncrReport.DefectImages.Select(img => img.ImageUrl).ToList()
         };
     }
 }

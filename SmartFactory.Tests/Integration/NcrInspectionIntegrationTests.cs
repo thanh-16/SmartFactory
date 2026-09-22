@@ -15,6 +15,7 @@ using Xunit;
 
 namespace SmartFactory.Tests.Integration;
 
+[Collection("SequentialIntegrationTests")]
 public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;
@@ -254,7 +255,7 @@ public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationF
         {
             Directory.CreateDirectory(uploadDir);
         }
-        var filesBefore = Directory.GetFiles(uploadDir);
+        var filesBefore = Directory.GetFiles(uploadDir).ToHashSet();
 
         var jpegBytes = TestFileHelper.CreateValidJpegBytes();
         using var form = new MultipartFormDataContent();
@@ -277,7 +278,8 @@ public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationF
 
         // Verify that no orphan file was left on disk in uploadDir
         var filesAfter = Directory.GetFiles(uploadDir);
-        filesAfter.Length.Should().Be(filesBefore.Length, "The uploaded file must be cleaned up on DB rollback.");
+        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
+        newlyCreated.Should().BeEmpty("The uploaded file must be cleaned up on DB rollback.");
 
         crashConnection.Close();
         crashConnection.Dispose();

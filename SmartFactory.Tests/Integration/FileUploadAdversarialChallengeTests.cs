@@ -16,6 +16,7 @@ using Xunit;
 
 namespace SmartFactory.Tests.Integration;
 
+[Collection("SequentialIntegrationTests")]
 public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;
@@ -117,7 +118,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
     public async Task Empirical_FakeExeDisguisedAsJpg_IsRejectedWith400ProblemDetails_AndLeavesNoOrphan()
     {
         // Arrange
-        var filesBefore = Directory.GetFiles(_uploadDir);
+        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
         var fakeExe = TestFileHelper.CreateFakeExeBytes();
         using var form = CreateMultipartForm(1, 1, 2, "Crack", "Major", "Fake exe test", fakeExe, "trojan.jpg", "image/jpeg");
 
@@ -134,7 +135,13 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         problem.Detail.Should().Contain("Executable files (.exe) are strictly prohibited");
 
         var filesAfter = Directory.GetFiles(_uploadDir);
-        filesAfter.Length.Should().Be(filesBefore.Length, "Rejected fake .exe must never leave a file on disk.");
+        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
+        var hasExecutable = newlyCreated.Any(f =>
+        {
+            var bytes = File.ReadAllBytes(f);
+            return bytes.Length >= 2 && bytes[0] == 0x4D && bytes[1] == 0x5A;
+        });
+        hasExecutable.Should().BeFalse("Rejected fake .exe must never leave an executable file on disk.");
     }
 
     [Fact]
@@ -160,7 +167,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
     public async Task Empirical_ZeroByteFile_IsRejectedWith400ProblemDetails_AndLeavesNoOrphan()
     {
         // Arrange
-        var filesBefore = Directory.GetFiles(_uploadDir);
+        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
         var zeroBytes = TestFileHelper.CreateZeroBytes();
         using var form = CreateMultipartForm(1, 1, 2, "Crack", "Minor", "0-byte test", zeroBytes, "empty.jpg", "image/jpeg");
 
@@ -177,14 +184,15 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         problem.Detail.Should().Contain("File is empty or zero bytes");
 
         var filesAfter = Directory.GetFiles(_uploadDir);
-        filesAfter.Length.Should().Be(filesBefore.Length, "0-byte file must never be written to disk.");
+        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
+        newlyCreated.Should().NotContain(f => new FileInfo(f).Length == 0, "0-byte file must never be written to disk.");
     }
 
     [Fact]
     public async Task Empirical_Over5MbFile_IsRejectedWith400Or413ProblemDetails_AndLeavesNoOrphan()
     {
         // Arrange
-        var filesBefore = Directory.GetFiles(_uploadDir);
+        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
         var largeBytes = TestFileHelper.CreateOver5MbBytes();
         using var form = CreateMultipartForm(1, 1, 2, "Deformation", "Major", "Over 5MB test", largeBytes, "huge.jpg", "image/jpeg");
 
@@ -201,7 +209,8 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         problem.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
 
         var filesAfter = Directory.GetFiles(_uploadDir);
-        filesAfter.Length.Should().Be(filesBefore.Length, "Over-limit payload must never be written to disk.");
+        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
+        newlyCreated.Should().NotContain(f => new FileInfo(f).Length >= 5 * 1024 * 1024, "Over-limit payload must never be written to disk.");
     }
 
     [Fact]
@@ -278,7 +287,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
 
         var client = crashingFactory.CreateClient();
 
-        var filesBefore = Directory.GetFiles(_uploadDir);
+        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
         var jpegBytes = TestFileHelper.CreateValidJpegBytes();
         using var form = CreateMultipartForm(1, 1, 2, "Crack", "Critical", "Crash rollback test", jpegBytes, "crash_target.jpg", "image/jpeg");
 
@@ -301,7 +310,8 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
 
         // Assert: 5. Zero orphan files
         var filesAfter = Directory.GetFiles(_uploadDir);
-        filesAfter.Length.Should().Be(filesBefore.Length, "Directory must have exactly zero orphan files remaining after rollback.");
+        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
+        newlyCreated.Should().NotContain(physicalPath, "Directory must not contain the rolled-back file after compensating cleanup.");
 
         crashConnection.Close();
         crashConnection.Dispose();

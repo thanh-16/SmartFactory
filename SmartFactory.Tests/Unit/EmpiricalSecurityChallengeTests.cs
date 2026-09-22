@@ -101,6 +101,7 @@ public class EmpiricalSecurityChallengeTests : IDisposable
     [InlineData("50 4B 03 04 14 00 06 00", "ZIP header disguised as .jpg", ".jpg")]   // PK zip
     public async Task Challenge_ForeignFileSignaturesDisguisedAsImages_AreRejected(string hexBytes, string desc, string ext)
     {
+        _ = desc; // Mark as explicitly used to satisfy xUnit analyzer
         var rawBytes = hexBytes.Split(' ')
             .Select(hex => Convert.ToByte(hex, 16))
             .Concat(new byte[32])
@@ -114,16 +115,58 @@ public class EmpiricalSecurityChallengeTests : IDisposable
         ex.WithMessage("*Invalid image format. Only genuine JPEG, PNG, and WEBP files are accepted.*");
     }
 
-    [Fact]
-    public async Task Challenge_TruncatedFileLessThan4Bytes_IsRejected()
+    [Theory]
+    [InlineData(0, "Empty 0-byte file")]
+    [InlineData(1, "Truncated 1-byte file")]
+    [InlineData(2, "Truncated 2-byte file")]
+    [InlineData(3, "Truncated 3-byte file")]
+    public async Task Challenge_SubBoundarySmallFiles_0To3Bytes_AreRejectedWithInvalidFileFormat(int byteCount, string scenario)
     {
-        var tinyBytes = new byte[] { 0xFF, 0xD8, 0xFF }; // 3 bytes
-        var file = TestFileHelper.CreateFormFile(tinyBytes, "tiny.jpg", "image/jpeg");
+        _ = scenario;
+        var bytes = byteCount == 0 ? Array.Empty<byte>() : Enumerable.Repeat((byte)0xFF, byteCount).ToArray();
+        var file = TestFileHelper.CreateFormFile(bytes, "sample.jpg", "image/jpeg");
 
         var act = () => _sut.SaveFileAsync(file, "defects");
 
         var ex = await act.Should().ThrowAsync<InvalidFileFormatException>();
-        ex.WithMessage("*File is corrupted or too small*");
+        if (byteCount == 0)
+        {
+            ex.WithMessage("*File is empty or zero bytes.*");
+        }
+        else
+        {
+            ex.WithMessage("*File is corrupted or too small*");
+        }
+    }
+
+    [Theory]
+    [InlineData("../../../../escaped.jpg")]
+    [InlineData("..\\..\\..\\escaped.png")]
+    [InlineData("C:\\Windows\\System32\\cmd.jpg")]
+    [InlineData("/etc/shadow.webp")]
+    [InlineData("..%2f..%2fescaped.jpg")]
+    public async Task Challenge_FileNamePathTraversalPayloads_AreSafelyNeutralizedWithGuid(string maliciousFileName)
+    {
+        var jpegBytes = TestFileHelper.CreateValidJpegBytes();
+        var file = TestFileHelper.CreateFormFile(jpegBytes, maliciousFileName, "image/jpeg");
+
+        var result = await _sut.SaveFileAsync(file, "defects");
+
+        result.Should().StartWith("/uploads/defects/");
+        var diskPath = Path.Combine(_tempFolder, result.TrimStart('/'));
+        File.Exists(diskPath).Should().BeTrue("File must be saved safely inside the defects directory.");
+
+        // Verify that the saved file name on disk does NOT contain '..' or malicious characters, but is a GUID
+        var savedFileName = Path.GetFileName(diskPath);
+        savedFileName.Should().NotContain("..");
+        var expectedExt = Path.GetExtension(maliciousFileName).ToLowerInvariant();
+        savedFileName.Length.Should().Be(32 + expectedExt.Length, $"Filename should be GUID:N (32 chars) + extension ({expectedExt})");
+        savedFileName.Should().EndWith(expectedExt);
+
+        // Verify directory containment
+        var expectedDir = Path.GetFullPath(Path.Combine(_tempFolder, "uploads", "defects"));
+        var actualDir = Path.GetDirectoryName(Path.GetFullPath(diskPath));
+        actualDir.Should().Be(expectedDir, "Target file must strictly reside inside uploads/defects");
     }
 
     [Theory]
