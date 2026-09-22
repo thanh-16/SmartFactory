@@ -268,4 +268,151 @@ public class NcrServiceTests : IDisposable
         await act.Should().ThrowAsync<NotFoundException>()
             .WithMessage("*NCR Report with ID 8888 not found.*");
     }
+
+    [Fact]
+    public async Task CreateInspectionReportAsync_WithNonExistentStation_ThrowsNotFoundException()
+    {
+        // Arrange
+        var request = new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 9999, // Non-existent station
+            ReportedByUserId = 2,
+            DefectType = "Crack",
+            Severity = "Minor",
+            Description = "Station test"
+        };
+
+        // Act
+        var act = () => _sut.CreateInspectionReportAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*Work station with ID 9999 not found.*");
+    }
+
+    [Fact]
+    public async Task CreateInspectionReportAsync_WithNonExistentReportedByUser_ThrowsNotFoundException()
+    {
+        // Arrange
+        var request = new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 1,
+            ReportedByUserId = 9999, // Non-existent user
+            DefectType = "Crack",
+            Severity = "Minor",
+            Description = "User test"
+        };
+
+        // Act
+        var act = () => _sut.CreateInspectionReportAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*User with ID 9999 not found.*");
+    }
+
+    [Fact]
+    public async Task ProcessDecisionAsync_WithNonExistentApprovedByUser_ThrowsNotFoundException()
+    {
+        // Arrange: create a valid NCR first
+        var inspectResult = await _sut.CreateInspectionReportAsync(new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 1,
+            ReportedByUserId = 2,
+            DefectType = "Crack",
+            Severity = "Major",
+            Description = "Approval user test"
+        });
+
+        var request = new NcrDecisionRequest
+        {
+            NcrReportId = inspectResult.Id,
+            Decision = "Rework",
+            ApprovedByUserId = 9999 // Non-existent approver
+        };
+
+        // Act
+        var act = () => _sut.ProcessDecisionAsync(request);
+
+        // Assert
+        await act.Should().ThrowAsync<NotFoundException>()
+            .WithMessage("*User with ID 9999 not found.*");
+    }
+
+    [Fact]
+    public async Task CreateInspectionReportAsync_OnAlreadyLockedLot_WithMinorDefect_PreservesLockedStatus_AndIncrementsDefectQuantity()
+    {
+        // Arrange: 1. Lock the lot first via Major defect
+        var majorRequest = new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 1,
+            ReportedByUserId = 2,
+            DefectType = "Crack",
+            Severity = "Major",
+            Description = "Initial severe defect"
+        };
+        await _sut.CreateInspectionReportAsync(majorRequest);
+
+        var lotBefore = await _context.ProductionLots.FindAsync(1);
+        lotBefore!.Status.Should().Be("Locked");
+        var initialDefectQty = lotBefore.DefectQuantity;
+
+        // Act: 2. Submit a Minor defect on the already Locked lot
+        var minorRequest = new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 1,
+            ReportedByUserId = 2,
+            DefectType = "Scratch",
+            Severity = "Minor",
+            Description = "Subsequent minor defect on locked lot"
+        };
+        var minorResult = await _sut.CreateInspectionReportAsync(minorRequest);
+
+        // Assert: 3. Status must NOT revert to InProgress, must remain Locked
+        minorResult.LotStatus.Should().Be("Locked");
+
+        var lotAfter = await _context.ProductionLots.FindAsync(1);
+        lotAfter!.Status.Should().Be("Locked", "A minor defect must never unlock or revert a Locked lot.");
+        lotAfter.DefectQuantity.Should().Be(initialDefectQty + 1);
+    }
+
+    [Theory]
+    [InlineData("rework", "InProgress")]
+    [InlineData("SCRAP", "Scrapped")]
+    [InlineData("concession", "Released")]
+    [InlineData("RETURN", "Released")]
+    public async Task ProcessDecisionAsync_WithCaseInsensitiveDecision_MapsLotStatusCorrectly(string decisionInput, string expectedLotStatus)
+    {
+        // Arrange
+        var inspectResult = await _sut.CreateInspectionReportAsync(new NcrInspectionRequest
+        {
+            LotId = 2,
+            StationId = 2,
+            ReportedByUserId = 2,
+            DefectType = "Deformation",
+            Severity = "Major",
+            Description = "Case sensitivity test"
+        });
+
+        var decisionRequest = new NcrDecisionRequest
+        {
+            NcrReportId = inspectResult.Id,
+            Decision = decisionInput,
+            Notes = "Case sensitivity test note",
+            ApprovedByUserId = 1
+        };
+
+        // Act
+        var result = await _sut.ProcessDecisionAsync(decisionRequest);
+
+        // Assert
+        result.ProductionLotStatus.Should().Be(expectedLotStatus);
+        var lot = await _context.ProductionLots.FindAsync(2);
+        lot!.Status.Should().Be(expectedLotStatus);
+    }
 }

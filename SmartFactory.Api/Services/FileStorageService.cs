@@ -5,7 +5,12 @@ namespace SmartFactory.Api.Services;
 
 public class FileStorageService : IFileStorageService
 {
-    private const long MaxFileSizeBytes = 5 * 1024 * 1024; // 5MB
+    private const long MaxFileSizeBytes = 5 * 1024 * 1024; // 5MB (5,242,880 bytes)
+    private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".webp"
+    };
+
     private readonly string _baseDirectory;
 
     public FileStorageService(IWebHostEnvironment? env = null)
@@ -39,12 +44,22 @@ public class FileStorageService : IFileStorageService
             throw new PayloadTooLargeException($"File size {file.Length} bytes exceeds the maximum allowed limit of {MaxFileSizeBytes} bytes (5MB).");
         }
 
+        if (string.IsNullOrWhiteSpace(subFolder) || subFolder.Contains("..") || Path.IsPathRooted(subFolder) || subFolder.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+        {
+            throw new ArgumentException("Invalid subfolder: path traversal or invalid characters detected.", nameof(subFolder));
+        }
+
         ValidateMagicBytes(file);
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (string.IsNullOrEmpty(extension))
         {
             extension = ".jpg";
+        }
+
+        if (!AllowedExtensions.Contains(extension))
+        {
+            throw new InvalidFileFormatException($"File extension '{extension}' is not allowed. Only genuine .jpg, .jpeg, .png, and .webp files are accepted.");
         }
 
         var uniqueFileName = $"{Guid.NewGuid():N}{extension}";
@@ -87,7 +102,9 @@ public class FileStorageService : IFileStorageService
 
             // Path Traversal Security Guard: Ensure target path resides within allowed directory
             var resolvedBase = Path.GetFullPath(_baseDirectory);
-            if (!fullPath.StartsWith(resolvedBase, StringComparison.OrdinalIgnoreCase))
+            var normalizedBase = Path.TrimEndingDirectorySeparator(resolvedBase) + Path.DirectorySeparatorChar;
+            var normalizedFull = Path.TrimEndingDirectorySeparator(fullPath) + Path.DirectorySeparatorChar;
+            if (!normalizedFull.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase))
             {
                 // Reject path traversal attempt
                 return false;

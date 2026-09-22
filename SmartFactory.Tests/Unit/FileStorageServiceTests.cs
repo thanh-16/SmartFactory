@@ -170,4 +170,67 @@ public class FileStorageServiceTests : IDisposable
         // Assert
         result.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task SaveFileAsync_WithExact5MbFile_ReturnsRelativePathAndSavesFile()
+    {
+        // Arrange: Exactly 5,242,880 bytes (5MB boundary pass test)
+        var bytes = TestFileHelper.CreateExact5MbBytes();
+        bytes.Length.Should().Be(5 * 1024 * 1024);
+        var file = TestFileHelper.CreateFormFile(bytes, "exact5mb.jpg", "image/jpeg");
+
+        // Act
+        var result = await _sut.SaveFileAsync(file, "defects");
+
+        // Assert
+        result.Should().StartWith("/uploads/defects/");
+        var diskPath = Path.Combine(_tempFolder, result.TrimStart('/'));
+        File.Exists(diskPath).Should().BeTrue("5MB exact boundary must be accepted and written to disk.");
+    }
+
+    [Fact]
+    public async Task SaveFileAsync_With5MbPlusOneByteFile_ThrowsPayloadTooLargeException()
+    {
+        // Arrange: Exactly 5,242,881 bytes (5MB + 1 byte boundary fail test)
+        var bytes = TestFileHelper.Create5MbPlusOneBytes();
+        bytes.Length.Should().Be((5 * 1024 * 1024) + 1);
+        var file = TestFileHelper.CreateFormFile(bytes, "over5mb1byte.jpg", "image/jpeg");
+
+        // Act
+        var act = () => _sut.SaveFileAsync(file, "defects");
+
+        // Assert
+        await act.Should().ThrowAsync<PayloadTooLargeException>()
+            .WithMessage("*exceeds the maximum allowed limit of 5242880 bytes (5MB)*");
+    }
+
+    [Fact]
+    public async Task SaveFileAsync_WithDisguisedExeExtension_ThrowsInvalidFileFormatException()
+    {
+        // Arrange: Valid JPEG binary header but dangerous .exe extension
+        var bytes = TestFileHelper.CreateValidJpegBytes();
+        var file = TestFileHelper.CreateFormFile(bytes, "trojan.exe", "image/jpeg");
+
+        // Act
+        var act = () => _sut.SaveFileAsync(file, "defects");
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidFileFormatException>()
+            .WithMessage("*extension '.exe' is not allowed*");
+    }
+
+    [Fact]
+    public async Task SaveFileAsync_WithTraversingSubFolder_ThrowsArgumentException()
+    {
+        // Arrange: Path traversal attempt via subFolder
+        var bytes = TestFileHelper.CreateValidJpegBytes();
+        var file = TestFileHelper.CreateFormFile(bytes, "normal.jpg", "image/jpeg");
+
+        // Act
+        var act = () => _sut.SaveFileAsync(file, "../escaped_dir");
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*path traversal*");
+    }
 }

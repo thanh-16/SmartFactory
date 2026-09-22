@@ -101,4 +101,29 @@ public class DashboardServiceTests
         result.TotalDefects.Should().Be(0);
         result.Items.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task GetParetoAnalysisAsync_WithSingleDefectCategory_ReturnsSingleItemWith100Percent()
+    {
+        // Arrange: A single defect category must result in exactly 100.0% cumulative percentage
+        var mockData = new List<(string DefectType, int Count)>
+        {
+            ("Crack", 12)
+        };
+
+        _dashboardRepository.GetDefectCountsByTypeAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(mockData));
+
+        // Act
+        var result = await _sut.GetParetoAnalysisAsync();
+
+        // Assert
+        result.Should().NotBeNull();
+        result.TotalDefects.Should().Be(12);
+        result.Items.Should().HaveCount(1);
+        result.Items[0].DefectType.Should().Be("Crack");
+        result.Items[0].Count.Should().Be(12);
+        result.Items[0].Percentage.Should().Be(100.0);
+        result.Items[0].CumulativePercentage.Should().Be(100.0);
+    }
 }

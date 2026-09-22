@@ -24,7 +24,18 @@ public class NcrReportsController : ControllerBase
     public async Task<IActionResult> AnalyzeAi([FromForm] string? description, [FromForm] IFormFile? image, CancellationToken ct)
     {
         var fileName = image?.FileName;
-        var result = await _aiService.AnalyzeDefectAsync(description ?? string.Empty, fileName, ct);
+        byte[]? imageBytes = null;
+        string? mimeType = null;
+
+        if (image != null && image.Length > 0)
+        {
+            using var ms = new MemoryStream();
+            await image.CopyToAsync(ms, ct);
+            imageBytes = ms.ToArray();
+            mimeType = image.ContentType;
+        }
+
+        var result = await _aiService.AnalyzeDefectAsync(description ?? string.Empty, fileName, imageBytes, mimeType, ct);
         return Ok(result);
     }
 
@@ -38,6 +49,34 @@ public class NcrReportsController : ControllerBase
         if (request.Image == null && Request.HasFormContentType && Request.Form.Files.Count > 0)
         {
             request.Image = Request.Form.Files.GetFile("Image") ?? Request.Form.Files[0];
+        }
+
+        // Tự động phân tích AI nếu KCS chưa điền loại lỗi hoặc mức độ
+        if (string.IsNullOrWhiteSpace(request.DefectType) || request.DefectType == "Auto")
+        {
+            byte[]? imageBytes = null;
+            string? mimeType = null;
+
+            if (request.Image != null && request.Image.Length > 0)
+            {
+                using var ms = new MemoryStream();
+                await request.Image.CopyToAsync(ms, ct);
+                imageBytes = ms.ToArray();
+                mimeType = request.Image.ContentType;
+            }
+
+            var aiAnalysis = await _aiService.AnalyzeDefectAsync(
+                request.Description ?? string.Empty, 
+                request.Image?.FileName, 
+                imageBytes, 
+                mimeType, 
+                ct);
+
+            request.DefectType = aiAnalysis.DefectType;
+            request.Severity = aiAnalysis.Severity;
+            request.Description = string.IsNullOrWhiteSpace(request.Description)
+                ? $"[AI Phân Tích: {aiAnalysis.RootCauseAnalysis}]"
+                : $"{request.Description} (AI: {aiAnalysis.RootCauseAnalysis})";
         }
 
         if (!ModelState.IsValid)

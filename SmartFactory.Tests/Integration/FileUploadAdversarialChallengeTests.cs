@@ -20,13 +20,15 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
 {
     private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
+    private readonly string _baseDir;
     private readonly string _uploadDir;
 
     public FileUploadAdversarialChallengeTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
-        _uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "defects");
+        _baseDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        _uploadDir = Path.Combine(_baseDir, "uploads", "defects");
         if (!Directory.Exists(_uploadDir))
         {
             Directory.CreateDirectory(_uploadDir);
@@ -55,7 +57,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         report.ImageUrls[0].Should().StartWith("/uploads/defects/");
         report.ImageUrls[0].Should().EndWith(".jpg");
 
-        var diskPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", report.ImageUrls[0].TrimStart('/'));
+        var diskPath = Path.Combine(_baseDir, report.ImageUrls[0].TrimStart('/'));
         File.Exists(diskPath).Should().BeTrue("Uploaded JPEG must physically exist on disk.");
     }
 
@@ -81,7 +83,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         report.ImageUrls[0].Should().StartWith("/uploads/defects/");
         report.ImageUrls[0].Should().EndWith(".png");
 
-        var diskPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", report.ImageUrls[0].TrimStart('/'));
+        var diskPath = Path.Combine(_baseDir, report.ImageUrls[0].TrimStart('/'));
         File.Exists(diskPath).Should().BeTrue("Uploaded PNG must physically exist on disk.");
     }
 
@@ -107,7 +109,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         report.ImageUrls[0].Should().StartWith("/uploads/defects/");
         report.ImageUrls[0].Should().EndWith(".webp");
 
-        var diskPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", report.ImageUrls[0].TrimStart('/'));
+        var diskPath = Path.Combine(_baseDir, report.ImageUrls[0].TrimStart('/'));
         File.Exists(diskPath).Should().BeTrue("Uploaded WEBP must physically exist on disk.");
     }
 
@@ -236,7 +238,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
             {
                 // Decorate / wrap IFileStorageService to trace SaveFileAsync and DeleteFile calls
                 var storageDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFileStorageService));
-                var realStorage = new FileStorageService();
+                var realStorage = new FileStorageService(_baseDir);
 
                 if (storageDescriptor != null)
                 {
@@ -287,7 +289,7 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
 
         // Assert: 2. File was actually saved during the request
         capturedSavedPath.Should().NotBeNullOrEmpty("File must have been saved prior to DB transaction.");
-        var physicalPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", capturedSavedPath!.TrimStart('/'));
+        var physicalPath = Path.Combine(_baseDir, capturedSavedPath!.TrimStart('/'));
 
         // Assert: 3. DeleteFile was invoked for the compensating cleanup
         deleteFileWasCalled.Should().BeTrue("Compensating cleanup must invoke DeleteFile on rollback.");

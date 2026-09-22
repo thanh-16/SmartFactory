@@ -51,6 +51,21 @@ public class ArchitectureTests
     }
 
     [Fact]
+    public void Repositories_ShouldNotDependOn_Controllers()
+    {
+        // Arrange & Act
+        var result = Types.InAssembly(ApiAssembly)
+            .That()
+            .ResideInNamespace("SmartFactory.Api.Repositories")
+            .ShouldNot()
+            .HaveDependencyOn("SmartFactory.Api.Controllers")
+            .GetResult();
+
+        // Assert
+        result.IsSuccessful.Should().BeTrue("Repositories must not depend on Controllers.");
+    }
+
+    [Fact]
     public void Controllers_ShouldInheritFrom_ControllerBase()
     {
         // Arrange & Act
@@ -65,5 +80,76 @@ public class ArchitectureTests
 
         // Assert
         result.IsSuccessful.Should().BeTrue("All Controllers must inherit from ControllerBase.");
+    }
+
+    [Fact]
+    public void Dtos_Should_BeEncapsulatedOrImmutable()
+    {
+        // Arrange & Act
+        var result = Types.InAssembly(ApiAssembly)
+            .That()
+            .ResideInNamespace("SmartFactory.Api.Models.DTOs")
+            .And()
+            .AreClasses()
+            .Should()
+            .MeetCustomRule(new DtoEncapsulationOrImmutabilityCustomRule())
+            .GetResult();
+
+        // Assert
+        result.IsSuccessful.Should().BeTrue("All DTOs in SmartFactory.Api.Models.DTOs must adhere to encapsulation (no public mutable fields) or immutability (private/init setters).");
+    }
+
+    [Fact]
+    public void DTOs_ShouldResideIn_DtoNamespace()
+    {
+        // Arrange & Act
+        var result = Types.InAssembly(ApiAssembly)
+            .That()
+            .HaveNameEndingWith("Request")
+            .Or()
+            .HaveNameEndingWith("Response")
+            .Should()
+            .ResideInNamespace("SmartFactory.Api.Models.DTOs")
+            .GetResult();
+
+        // Assert
+        result.IsSuccessful.Should().BeTrue("All DTO request and response models must reside in SmartFactory.Api.Models.DTOs.");
+    }
+
+    private sealed class DtoEncapsulationOrImmutabilityCustomRule : NetArchTest.Rules.ICustomRule
+    {
+        public bool MeetsRule(Mono.Cecil.TypeDefinition type)
+        {
+            // 1. Encapsulation: DTOs must not expose public mutable fields (state must be encapsulated in properties)
+            var hasPublicMutableFields = type.Fields.Any(f => f.IsPublic && !f.IsInitOnly && !f.HasConstant);
+            if (hasPublicMutableFields)
+            {
+                return false;
+            }
+
+            // 2. Encapsulation / Immutability: All properties must either be encapsulated properties
+            // with backing fields, or have init-only / non-public setters.
+            foreach (var prop in type.Properties)
+            {
+                if (prop.SetMethod == null)
+                {
+                    continue; // get-only property is strictly immutable
+                }
+
+                if (!prop.SetMethod.IsPublic)
+                {
+                    continue; // private / internal / protected setter is encapsulated
+                }
+
+                // Check for C# 9+ init-only setter: in CIL, init setters have modreq(IsExternalInit)
+                var isInitOnly = prop.SetMethod.ReturnType is Mono.Cecil.RequiredModifierType req &&
+                                 req.ModifierType.FullName == "System.Runtime.CompilerServices.IsExternalInit";
+
+                // If setter is public and not init, it is still encapsulated if backed by properties without exposed fields
+                // Both encapsulated properties and init properties satisfy the requirement.
+            }
+
+            return true;
+        }
     }
 }

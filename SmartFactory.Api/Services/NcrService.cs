@@ -13,7 +13,6 @@ public class NcrService : INcrService
     private readonly FactoryDbContext _context;
     private readonly IFileStorageService _fileStorageService;
     private readonly IHubContext<FactoryHub, IFactoryHubClient>? _hubContext;
-    private static readonly SemaphoreSlim _decisionSemaphore = new(1, 1);
 
     public NcrService(
         FactoryDbContext context, 
@@ -229,12 +228,12 @@ public class NcrService : INcrService
                 // "Rework" => unlocks lot back to "InProgress"
                 // "Scrap" => sets lot to "Scrapped"
                 // "Concession" / "Return" => sets lot to "Released"
-                lot.Status = request.Decision switch
+                lot.Status = (request.Decision ?? string.Empty).ToUpperInvariant() switch
                 {
-                    "Rework" => "InProgress",
-                    "Scrap" => "Scrapped",
-                    "Concession" => "Released",
-                    "Return" => "Released",
+                    "REWORK" => "InProgress",
+                    "SCRAP" => "Scrapped",
+                    "CONCESSION" => "Released",
+                    "RETURN" => "Released",
                     _ => "InProgress"
                 };
                 lot.UpdatedAt = DateTime.UtcNow;

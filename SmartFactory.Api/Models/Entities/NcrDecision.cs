@@ -9,5 +9,8 @@ public class NcrDecision
     public AppUser? ApprovedByUser { get; set; }
     public string Decision { get; set; } = string.Empty; // Rework, Scrap, Concession, Return
     public string? Notes { get; set; }
+
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? Reason { get => Notes; set => Notes = value; }
     public DateTime DecisionDate { get; set; } = DateTime.UtcNow;
 }

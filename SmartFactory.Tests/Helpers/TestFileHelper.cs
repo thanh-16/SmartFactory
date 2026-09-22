@@ -68,6 +68,24 @@ public static class TestFileHelper
         return large;
     }
 
+    public static byte[] CreateExact5MbBytes()
+    {
+        // Exactly 5,242,880 bytes with valid JPEG header
+        var exact = new byte[5 * 1024 * 1024];
+        var header = CreateValidJpegBytes();
+        Array.Copy(header, 0, exact, 0, header.Length);
+        return exact;
+    }
+
+    public static byte[] Create5MbPlusOneBytes()
+    {
+        // Exactly 5,242,881 bytes (5MB + 1 byte) with valid JPEG header
+        var overOne = new byte[(5 * 1024 * 1024) + 1];
+        var header = CreateValidJpegBytes();
+        Array.Copy(header, 0, overOne, 0, header.Length);
+        return overOne;
+    }
+
     public static IFormFile CreateFormFile(byte[] content, string fileName, string contentType = "image/jpeg")
     {
         var stream = new MemoryStream(content);

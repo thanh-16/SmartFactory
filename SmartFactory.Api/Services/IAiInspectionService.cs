@@ -1,8 +1,26 @@
 namespace SmartFactory.Api.Services;
 
-public record AiAnalysisResult(string DefectType, string Severity, string RootCauseAnalysis, string SuggestedAction);
+/// <summary>
+/// Kết quả phân tích sự cố chất lượng từ AI
+/// </summary>
+public record AiAnalysisResult(
+    string DefectType, 
+    string Severity, 
+    string RootCauseAnalysis, 
+    string SuggestedAction,
+    float Confidence = 0.95f,
+    string Provider = "Gemini-1.5-Flash"
+);
 
 public interface IAiInspectionService
 {
-    Task<AiAnalysisResult> AnalyzeDefectAsync(string description, string? imageFileName = null, CancellationToken ct = default);
+    /// <summary>
+    /// Phân tích ảnh và mô tả sự cố bằng Google Gemini Vision API kèm cơ chế Fallback thông minh
+    /// </summary>
+    Task<AiAnalysisResult> AnalyzeDefectAsync(
+        string description, 
+        string? imageFileName = null, 
+        byte[]? imageBytes = null, 
+        string? mimeType = null, 
+        CancellationToken ct = default);
 }

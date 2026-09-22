@@ -4,6 +4,10 @@ public class WorkStation
 {
     public int Id { get; set; }
     public string Code { get; set; } = string.Empty; // ST-01, ST-02, ST-03
+
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string StationCode { get => Code; set => Code = value; }
+
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
