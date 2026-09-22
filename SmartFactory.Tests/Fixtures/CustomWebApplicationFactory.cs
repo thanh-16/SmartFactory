@@ -66,6 +66,24 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         {
             _connection?.Close();
             _connection?.Dispose();
+
+            // Auto-cleanup test mock uploads to preserve disk space and pipeline hygiene
+            try
+            {
+                var testUploadDir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot", "uploads", "defects");
+                if (System.IO.Directory.Exists(testUploadDir))
+                {
+                    var testFiles = System.IO.Directory.GetFiles(testUploadDir);
+                    foreach (var file in testFiles)
+                    {
+                        try { System.IO.File.Delete(file); } catch { /* Ignore locked or in-use files */ }
+                    }
+                }
+            }
+            catch
+            {
+                // Non-blocking cleanup
+            }
         }
     }
 }
