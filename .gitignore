@@ -26,6 +26,7 @@ out/
 *.tmp
 TestResults/
 
-## Uploaded defect images in local runtime
-SmartFactory.Api/wwwroot/uploads/
-uploads/
+## Agent runtime & temporary traces
+.agents/
+.gemini/
+
