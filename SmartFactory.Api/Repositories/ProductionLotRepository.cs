@@ -16,15 +16,17 @@ public class ProductionLotRepository : IProductionLotRepository
     public async Task<ProductionLot?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         return await _context.ProductionLots
-            .Include(p => p.WorkStation)
-            .FirstOrDefaultAsync(p => p.Id == id, ct);
+            .Include(productionLot => productionLot.WorkStation)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(productionLot => productionLot.Id == id, ct);
     }
 
     public async Task<ProductionLot?> GetByLotNumberAsync(string lotNumber, CancellationToken ct = default)
     {
         return await _context.ProductionLots
-            .Include(p => p.WorkStation)
-            .FirstOrDefaultAsync(p => p.LotNumber == lotNumber, ct);
+            .Include(productionLot => productionLot.WorkStation)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(productionLot => productionLot.LotNumber == lotNumber, ct);
     }
 
     public async Task<List<ProductionLot>> GetAllAsync(CancellationToken ct = default)
