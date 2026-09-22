@@ -110,7 +110,7 @@ public class EmpiricalSecurityChallengeTests : IDisposable
 
         var act = () => _sut.SaveFileAsync(file, "defects");
 
-        var ex = await act.Should().ThrowAsync<InvalidFileFormatException>();
+        var ex = await act.Should().ThrowAsync<InvalidFileFormatException>(because: desc);
         ex.WithMessage("*Invalid image format. Only genuine JPEG, PNG, and WEBP files are accepted.*");
     }
 
