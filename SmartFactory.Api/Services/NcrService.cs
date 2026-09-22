@@ -14,6 +14,7 @@ public class NcrService : INcrService
     private readonly FactoryDbContext _context;
     private readonly IFileStorageService _fileStorageService;
     private readonly IHubContext<FactoryHub, IFactoryHubClient>? _hubContext;
+    private static readonly SemaphoreSlim _inspectionLock = new(1, 1);
 
     public NcrService(
         FactoryDbContext context, 
@@ -27,173 +28,184 @@ public class NcrService : INcrService
 
     public async Task<NcrReportResponse> CreateInspectionReportAsync(NcrInspectionRequest request, CancellationToken ct = default)
     {
-        // 1. Verify existence of related entities
-        var lot = await _context.ProductionLots
-            .Include(productionLot => productionLot.WorkStation)
-            .FirstOrDefaultAsync(productionLot => productionLot.Id == request.LotId, ct);
-
-        if (lot == null)
+        await _inspectionLock.WaitAsync(ct);
+        try
         {
-            throw new NotFoundException($"Production lot with ID {request.LotId} not found.");
-        }
+            // 1. Verify existence of related entities
+            var lot = await _context.ProductionLots
+                .Include(productionLot => productionLot.WorkStation)
+                .FirstOrDefaultAsync(productionLot => productionLot.Id == request.LotId, ct);
 
-        var station = await _context.WorkStations
-            .AsNoTracking()
-            .FirstOrDefaultAsync(stationEntity => stationEntity.Id == request.StationId, ct);
-
-        if (station == null)
-        {
-            throw new NotFoundException($"Work station with ID {request.StationId} not found.");
-        }
-
-        var user = await _context.Users
-            .AsNoTracking()
-            .FirstOrDefaultAsync(userEntity => userEntity.Id == request.ReportedByUserId, ct);
-
-        if (user == null)
-        {
-            throw new NotFoundException($"User with ID {request.ReportedByUserId} not found.");
-        }
-
-        // 2. Save physical file if provided
-        string? savedImageUrl = null;
-        string? originalFileName = null;
-        long fileSize = 0;
-        string contentType = "image/jpeg";
-
-        if (request.Image != null)
-        {
-            originalFileName = request.Image.FileName;
-            fileSize = request.Image.Length;
-            contentType = request.Image.ContentType ?? "image/jpeg";
-            savedImageUrl = await _fileStorageService.SaveFileAsync(request.Image, "defects", ct);
-        }
-
-        // 3. Resilient atomic transaction with compensating cleanup
-        var strategy = _context.Database.CreateExecutionStrategy();
-
-        var response = await strategy.ExecuteAsync(async () =>
-        {
-            await using var transaction = await _context.Database.BeginTransactionAsync(ct);
-            try
+            if (lot == null)
             {
-                // Atomic lot locking on Major/Critical defect
-                var isSevere = request.Severity.Equals("Critical", StringComparison.OrdinalIgnoreCase) ||
-                               request.Severity.Equals("Major", StringComparison.OrdinalIgnoreCase);
+                throw new NotFoundException($"Production lot with ID {request.LotId} not found.");
+            }
 
-                if (isSevere)
+            var station = await _context.WorkStations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(stationEntity => stationEntity.Id == request.StationId, ct);
+
+            if (station == null)
+            {
+                throw new NotFoundException($"Work station with ID {request.StationId} not found.");
+            }
+
+            var user = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(userEntity => userEntity.Id == request.ReportedByUserId, ct);
+
+            if (user == null)
+            {
+                throw new NotFoundException($"User with ID {request.ReportedByUserId} not found.");
+            }
+
+            // 2. Save physical file if provided
+            string? savedImageUrl = null;
+            string? originalFileName = null;
+            long fileSize = 0;
+            string contentType = "image/jpeg";
+
+            if (request.Image != null)
+            {
+                originalFileName = request.Image.FileName;
+                fileSize = request.Image.Length;
+                contentType = request.Image.ContentType ?? "image/jpeg";
+                savedImageUrl = await _fileStorageService.SaveFileAsync(request.Image, "defects", ct);
+            }
+
+            // 3. Resilient atomic transaction with compensating cleanup
+            var strategy = _context.Database.CreateExecutionStrategy();
+
+            var response = await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+                try
                 {
-                    lot.Status = "Locked";
-                }
-                lot.DefectQuantity += 1;
-                lot.UpdatedAt = DateTime.UtcNow;
+                    // Refresh lot to get latest DefectQuantity in case of concurrent inspections
+                    await _context.Entry(lot).ReloadAsync(ct);
 
-                var ncrNumber = $"NCR-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
-                var ncrReport = new NcrReport
-                {
-                    NcrNumber = ncrNumber,
-                    ProductionLotId = lot.Id,
-                    WorkStationId = station.Id,
-                    ReportedByUserId = user.Id,
-                    DefectType = request.DefectType,
-                    Severity = request.Severity,
-                    Description = request.Description,
-                    Status = "Pending",
-                    RootCauseAnalysisJson = string.IsNullOrWhiteSpace(request.RootCauseAnalysisJson)
-                        ? JsonSerializer.Serialize(AiInspectionService.GenerateHeuristicRootCauseAnalysis(request.DefectType, request.Description))
-                        : request.RootCauseAnalysisJson,
-                    CreatedAt = DateTime.UtcNow
-                };
+                    // Atomic lot locking on Major/Critical defect
+                    var isSevere = request.Severity.Equals("Critical", StringComparison.OrdinalIgnoreCase) ||
+                                   request.Severity.Equals("Major", StringComparison.OrdinalIgnoreCase);
 
-                await _context.NcrReports.AddAsync(ncrReport, ct);
-                await _context.SaveChangesAsync(ct);
-
-                if (!string.IsNullOrEmpty(savedImageUrl))
-                {
-                    var defectImage = new DefectImage
+                    if (isSevere)
                     {
-                        NcrReportId = ncrReport.Id,
-                        ImageUrl = savedImageUrl,
-                        FileName = originalFileName ?? "image.jpg",
-                        FileSizeBytes = fileSize,
-                        ContentType = contentType,
-                        UploadedAt = DateTime.UtcNow
+                        lot.Status = "Locked";
+                    }
+                    lot.DefectQuantity += 1;
+                    lot.UpdatedAt = DateTime.UtcNow;
+
+                    var ncrNumber = $"NCR-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
+                    var ncrReport = new NcrReport
+                    {
+                        NcrNumber = ncrNumber,
+                        ProductionLotId = lot.Id,
+                        WorkStationId = station.Id,
+                        ReportedByUserId = user.Id,
+                        DefectType = request.DefectType,
+                        Severity = request.Severity,
+                        Description = request.Description,
+                        Status = "Pending",
+                        RootCauseAnalysisJson = string.IsNullOrWhiteSpace(request.RootCauseAnalysisJson)
+                            ? JsonSerializer.Serialize(AiInspectionService.GenerateHeuristicRootCauseAnalysis(request.DefectType, request.Description))
+                            : request.RootCauseAnalysisJson,
+                        CreatedAt = DateTime.UtcNow
                     };
 
-                    await _context.DefectImages.AddAsync(defectImage, ct);
+                    await _context.NcrReports.AddAsync(ncrReport, ct);
                     await _context.SaveChangesAsync(ct);
+
+                    if (!string.IsNullOrEmpty(savedImageUrl))
+                    {
+                        var defectImage = new DefectImage
+                        {
+                            NcrReportId = ncrReport.Id,
+                            ImageUrl = savedImageUrl,
+                            FileName = originalFileName ?? "image.jpg",
+                            FileSizeBytes = fileSize,
+                            ContentType = contentType,
+                            UploadedAt = DateTime.UtcNow
+                        };
+
+                        await _context.DefectImages.AddAsync(defectImage, ct);
+                        await _context.SaveChangesAsync(ct);
+                    }
+
+                    await transaction.CommitAsync(ct);
+
+                    return new NcrReportResponse
+                    {
+                        Id = ncrReport.Id,
+                        NcrNumber = ncrReport.NcrNumber,
+                        ProductionLotId = lot.Id,
+                        LotNumber = lot.LotNumber,
+                        LotStatus = lot.Status,
+                        WorkStationId = station.Id,
+                        StationCode = station.Code,
+                        ReportedByUserId = user.Id,
+                        ReportedByName = user.FullName,
+                        DefectType = ncrReport.DefectType,
+                        Severity = ncrReport.Severity,
+                        Description = ncrReport.Description,
+                        Status = ncrReport.Status,
+                        RootCauseAnalysisJson = ncrReport.RootCauseAnalysisJson,
+                        RootCauseAnalysis = DeserializeRca(ncrReport.RootCauseAnalysisJson),
+                        CreatedAt = ncrReport.CreatedAt,
+                        ImageUrls = string.IsNullOrEmpty(savedImageUrl) ? new List<string>() : new List<string> { savedImageUrl }
+                    };
                 }
-
-                await transaction.CommitAsync(ct);
-
-                return new NcrReportResponse
+                catch (Exception)
                 {
-                    Id = ncrReport.Id,
-                    NcrNumber = ncrReport.NcrNumber,
-                    ProductionLotId = lot.Id,
-                    LotNumber = lot.LotNumber,
-                    LotStatus = lot.Status,
-                    WorkStationId = station.Id,
-                    StationCode = station.Code,
-                    ReportedByUserId = user.Id,
-                    ReportedByName = user.FullName,
-                    DefectType = ncrReport.DefectType,
-                    Severity = ncrReport.Severity,
-                    Description = ncrReport.Description,
-                    Status = ncrReport.Status,
-                    RootCauseAnalysisJson = ncrReport.RootCauseAnalysisJson,
-                    RootCauseAnalysis = DeserializeRca(ncrReport.RootCauseAnalysisJson),
-                    CreatedAt = ncrReport.CreatedAt,
-                    ImageUrls = string.IsNullOrEmpty(savedImageUrl) ? new List<string>() : new List<string> { savedImageUrl }
-                };
-            }
-            catch (Exception)
-            {
-                await transaction.RollbackAsync(ct);
+                    await transaction.RollbackAsync(ct);
 
-                // Two-phase compensating cleanup: delete physical file to prevent orphan artifacts
-                if (!string.IsNullOrEmpty(savedImageUrl))
-                {
-                    _fileStorageService.DeleteFile(savedImageUrl);
+                    // Two-phase compensating cleanup: delete physical file to prevent orphan artifacts
+                    if (!string.IsNullOrEmpty(savedImageUrl))
+                    {
+                        _fileStorageService.DeleteFile(savedImageUrl);
+                    }
+
+                    throw;
                 }
+            });
 
-                throw;
-            }
-        });
-
-        // Broadcast Realtime Andon Alert to connected dashboards
-        if (_hubContext != null)
-        {
-            try
+            // Broadcast Realtime Andon Alert to connected dashboards
+            if (_hubContext != null)
             {
-                var andonPayload = new AndonAlertPayload
+                try
                 {
-                    NcrId = response.Id,
-                    NcrNumber = response.NcrNumber,
-                    ProductionLotId = response.ProductionLotId,
-                    LotNumber = response.LotNumber,
-                    ProductName = lot.ProductName,
-                    WorkStationId = station.Id,
-                    StationCode = station.Code,
-                    StationName = station.Name,
-                    DefectType = response.DefectType,
-                    Severity = response.Severity,
-                    Description = response.Description,
-                    ImageUrl = response.ImageUrls.FirstOrDefault(),
-                    IsLocked = response.LotStatus.Equals("Locked", StringComparison.OrdinalIgnoreCase),
-                    ReportedByName = response.ReportedByName,
-                    CreatedAt = response.CreatedAt
-                };
+                    var andonPayload = new AndonAlertPayload
+                    {
+                        NcrId = response.Id,
+                        NcrNumber = response.NcrNumber,
+                        ProductionLotId = response.ProductionLotId,
+                        LotNumber = response.LotNumber,
+                        ProductName = lot.ProductName,
+                        WorkStationId = response.WorkStationId,
+                        StationCode = station.Code,
+                        StationName = station.Name,
+                        DefectType = response.DefectType,
+                        Severity = response.Severity,
+                        Description = response.Description,
+                        ImageUrl = response.ImageUrls.FirstOrDefault(),
+                        IsLocked = response.LotStatus.Equals("Locked", StringComparison.OrdinalIgnoreCase),
+                        ReportedByName = response.ReportedByName,
+                        CreatedAt = response.CreatedAt
+                    };
 
-                await _hubContext.Clients.All.ReceiveAndonAlert(andonPayload);
+                    await _hubContext.Clients.All.ReceiveAndonAlert(andonPayload);
+                }
+                catch
+                {
+                    // Non-blocking for SignalR broadcast
+                }
             }
-            catch
-            {
-                // Non-blocking for SignalR broadcast
-            }
+
+            return response;
         }
-
-        return response;
+        finally
+        {
+            _inspectionLock.Release();
+        }
     }
 
     private static readonly SemaphoreSlim _decisionLock = new(1, 1);

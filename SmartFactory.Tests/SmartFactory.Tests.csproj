@@ -35,4 +35,8 @@
     </Content>
   </ItemGroup>
 
+  <Target Name="CopyDepsFile" AfterTargets="Build">
+    <Copy SourceFiles="..\SmartFactory.Api\bin\$(Configuration)\net10.0\SmartFactory.Api.deps.json" DestinationFolder="$(OutputPath)" ContinueOnError="true" />
+  </Target>
+
 </Project>

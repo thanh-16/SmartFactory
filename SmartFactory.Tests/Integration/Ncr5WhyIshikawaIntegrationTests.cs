@@ -14,6 +14,7 @@ using Xunit;
 
 namespace SmartFactory.Tests.Integration;
 
+[Collection("SequentialIntegrationTests")]
 public class Ncr5WhyIshikawaIntegrationTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly CustomWebApplicationFactory _factory;
@@ -162,5 +163,81 @@ public class Ncr5WhyIshikawaIntegrationTests : IClassFixture<CustomWebApplicatio
         fetched!.RootCauseAnalysis.Should().NotBeNull();
         fetched.RootCauseAnalysis!.FiveWhys.Should().HaveCount(5);
         fetched.RootCauseAnalysis.PrimaryRootCause.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task GetRootCauseEndpoint_WhenNcrExists_Returns200WithRootCauseAnalysis()
+    {
+        // Arrange
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("1"), "LotId");
+        form.Add(new StringContent("1"), "StationId");
+        form.Add(new StringContent("2"), "ReportedByUserId");
+        form.Add(new StringContent("Crack"), "DefectType");
+        form.Add(new StringContent("Critical"), "Severity");
+        form.Add(new StringContent("Vết nứt chân đế lan rộng"), "Description");
+
+        var createRes = await _client.PostAsync("/api/ncr-reports/inspect", form);
+        createRes.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await createRes.Content.ReadFromJsonAsync<NcrReportResponse>(_jsonOptions);
+
+        // Act: GET /api/ncr-reports/{id}/root-cause
+        var rcaRes = await _client.GetAsync($"/api/ncr-reports/{created!.Id}/root-cause");
+
+        // Assert
+        rcaRes.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rca = await rcaRes.Content.ReadFromJsonAsync<RootCauseAnalysisResult>(_jsonOptions);
+        rca.Should().NotBeNull();
+        rca!.FiveWhys.Should().HaveCount(5);
+        rca.IshikawaCategories.Should().HaveCount(6);
+        rca.PrimaryRootCause.Should().NotBeNullOrWhiteSpace();
+        rca.RecommendedCorrectiveAction.Should().NotBeNullOrWhiteSpace();
+        rca.RecommendedPreventiveAction.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task GetRootCauseEndpoint_WhenNcrNotFound_Returns404ProblemDetails()
+    {
+        // Act: Non-existent ID
+        var response = await _client.GetAsync("/api/ncr-reports/999999/root-cause");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+    }
+
+    [Fact]
+    public async Task ParallelExecution_10ThreadsRcaGeneration_ZeroDeadlock()
+    {
+        // Arrange: 10 parallel inspection submissions across unique lots or stations
+        var defectTypes = new[] { "Crack", "Scratch", "Deformation", "Porosity", "Contamination", "Burr", "Other", "Crack", "Scratch", "Deformation" };
+
+        var tasks = defectTypes.Select(async (defectType, index) =>
+        {
+            var stationId = (index % 3) + 1;
+            using var form = new MultipartFormDataContent();
+            form.Add(new StringContent("1"), "LotId");
+            form.Add(new StringContent(stationId.ToString()), "StationId");
+            form.Add(new StringContent("2"), "ReportedByUserId");
+            form.Add(new StringContent(defectType), "DefectType");
+            form.Add(new StringContent("Major"), "Severity");
+            form.Add(new StringContent($"Kiểm thử đồng thời luồng {index + 1} loại lỗi {defectType}"), "Description");
+
+            var res = await _client.PostAsync("/api/ncr-reports/inspect", form);
+            return res;
+        }).ToList();
+
+        // Act
+        var responses = await Task.WhenAll(tasks);
+
+        // Assert: 100% of parallel requests succeed with 201 Created without SQLite locking errors
+        foreach (var response in responses)
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.Created, "Tất cả các luồng đồng thời phải lưu trữ thành công không gặp lỗi database is locked.");
+            var report = await response.Content.ReadFromJsonAsync<NcrReportResponse>(_jsonOptions);
+            report.Should().NotBeNull();
+            report!.RootCauseAnalysis.Should().NotBeNull();
+            report.RootCauseAnalysis!.FiveWhys.Should().HaveCount(5);
+        }
     }
 }
