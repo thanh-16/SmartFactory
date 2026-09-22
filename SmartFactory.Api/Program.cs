@@ -5,6 +5,10 @@ using SmartFactory.Api.Repositories;
 using SmartFactory.Api.Services;
 
 using SmartFactory.Api.Hubs;
+using QuestPDF.Infrastructure;
+
+// Configure QuestPDF License (Community)
+QuestPDF.Settings.License = LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,6 +52,7 @@ builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 builder.Services.AddScoped<INcrService, NcrService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAiInspectionService, AiInspectionService>();
+builder.Services.AddScoped<INcrPdfExportService, NcrPdfExportService>();
 
 var app = builder.Build();
 

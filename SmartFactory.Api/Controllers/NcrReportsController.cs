@@ -108,4 +108,24 @@ public class NcrReportsController : ControllerBase
         }
         return Ok(report);
     }
+
+    [HttpGet("{id:int}/export-pdf")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK, "application/pdf")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ExportPdf(
+        int id, 
+        [FromQuery] bool download = false, 
+        [FromServices] INcrPdfExportService pdfExportService = null!, 
+        CancellationToken ct = default)
+    {
+        var pdfBytes = await pdfExportService.GenerateNcrPdfAsync(id, ct);
+        var fileName = $"NCR-Report-{id}-{DateTime.UtcNow:yyyyMMdd}.pdf";
+
+        var dispositionType = download ? "attachment" : "inline";
+        Response.Headers["Content-Disposition"] = $"{dispositionType}; filename=\"{fileName}\"";
+
+        return download 
+            ? File(pdfBytes, "application/pdf", fileName) 
+            : File(pdfBytes, "application/pdf");
+    }
 }

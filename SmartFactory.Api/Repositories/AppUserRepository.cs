@@ -15,7 +15,7 @@ public class AppUserRepository : IAppUserRepository
 
     public async Task<AppUser?> GetByIdAsync(int id, CancellationToken ct = default)
     {
-        return await _context.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+        return await _context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == id, ct);
     }
 
     public async Task<List<AppUser>> GetAllAsync(CancellationToken ct = default)

@@ -35,6 +35,13 @@ public class ProductionLotRepository : IProductionLotRepository
             .ToListAsync(ct);
     }
 
+    public async Task<int> CountActiveLotsByStationIdAsync(int stationId, CancellationToken ct = default)
+    {
+        return await _context.ProductionLots
+            .AsNoTracking()
+            .CountAsync(p => p.WorkStationId == stationId && (p.Status == "InProgress" || p.Status == "Locked"), ct);
+    }
+
     public async Task<ProductionLot> AddAsync(ProductionLot lot, CancellationToken ct = default)
     {
         await _context.ProductionLots.AddAsync(lot, ct);

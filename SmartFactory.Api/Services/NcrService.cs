@@ -216,6 +216,12 @@ public class NcrService : INcrService
                 .FirstOrDefaultAsync(u => u.Id == request.ApprovedByUserId, ct)
                 ?? throw new NotFoundException($"User with ID {request.ApprovedByUserId} not found.");
 
+            if (!user.Role.Equals("Supervisor", StringComparison.OrdinalIgnoreCase) && 
+                !user.Role.Equals("Manager", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ConflictException($"Người dùng '{user.FullName}' (Role: {user.Role}) không có thẩm quyền phê duyệt quyết định xử lý sự cố.");
+            }
+
             lot = ncr.ProductionLot;
             if (lot == null)
             {

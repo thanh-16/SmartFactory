@@ -368,13 +368,13 @@ public class NcrStateMachineStressTests : IClassFixture<CustomWebApplicationFact
 
         var responses = await Task.WhenAll(tasks);
 
-        // Assert: At least one succeeded with 201 Created
+        // Assert: Exactly 1 succeeded with 201 Created, exactly 9 failed with 409 Conflict
         var createdCount = responses.Count(r => r.StatusCode == HttpStatusCode.Created);
-        var conflictOrLockCount = responses.Count(r => r.StatusCode == HttpStatusCode.Conflict || r.StatusCode == HttpStatusCode.InternalServerError);
+        var conflictCount = responses.Count(r => r.StatusCode == HttpStatusCode.Conflict);
 
-        // Concurrency Oracle: Exactly 1 request succeeds in creating decision; all others are rejected (409 or lock error)
+        // Concurrency Oracle: Exactly 1 request succeeds (201 Created), exactly 9 yield Conflict (409 Conflict)
         createdCount.Should().Be(1, "Exactly one concurrent decision can successfully be created.");
-        conflictOrLockCount.Should().Be(concurrentRequests - 1, "All other concurrent attempts must be rejected.");
+        conflictCount.Should().Be(concurrentRequests - 1, "All 9 other concurrent attempts must be rejected with 409 Conflict.");
 
         // Verify in Database: Strictly single decision record persisted (No double-resolution race condition)
         using var scope = _factory.Services.CreateScope();
@@ -384,5 +384,139 @@ public class NcrStateMachineStressTests : IClassFixture<CustomWebApplicationFact
 
         var ncrInDb = await db.NcrReports.AsNoTracking().FirstOrDefaultAsync(n => n.Id == report!.Id);
         ncrInDb!.Status.Should().Be("Resolved");
+    }
+
+    [Fact]
+    public async Task Stress11_NonExistentStation_Returns404NotFoundProblemDetails()
+    {
+        // Arrange
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("1"), "LotId");
+        form.Add(new StringContent("99999"), "StationId"); // Non-existent station
+        form.Add(new StringContent("2"), "ReportedByUserId");
+        form.Add(new StringContent("Crack"), "DefectType");
+        form.Add(new StringContent("Minor"), "Severity");
+        form.Add(new StringContent("Non-existent station test"), "Description");
+
+        // Act
+        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(_jsonOptions);
+        problem.Should().NotBeNull();
+        problem!.Status.Should().Be((int)HttpStatusCode.NotFound);
+        problem.Title.Should().Be("Resource Not Found");
+        problem.Detail.Should().Contain("Work station with ID 99999 not found");
+    }
+
+    [Fact]
+    public async Task Stress12_NonExistentReportedByUser_Returns404NotFoundProblemDetails()
+    {
+        // Arrange
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("1"), "LotId");
+        form.Add(new StringContent("1"), "StationId");
+        form.Add(new StringContent("99999"), "ReportedByUserId"); // Non-existent user
+        form.Add(new StringContent("Crack"), "DefectType");
+        form.Add(new StringContent("Minor"), "Severity");
+        form.Add(new StringContent("Non-existent user test"), "Description");
+
+        // Act
+        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(_jsonOptions);
+        problem.Should().NotBeNull();
+        problem!.Status.Should().Be((int)HttpStatusCode.NotFound);
+        problem.Title.Should().Be("Resource Not Found");
+        problem.Detail.Should().Contain("User with ID 99999 not found");
+    }
+
+    [Fact]
+    public async Task Stress13_NonExistentApprovedByUser_Returns404NotFoundProblemDetails()
+    {
+        // Arrange: Create a valid NCR first
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("1"), "LotId");
+        form.Add(new StringContent("1"), "StationId");
+        form.Add(new StringContent("2"), "ReportedByUserId");
+        form.Add(new StringContent("Crack"), "DefectType");
+        form.Add(new StringContent("Major"), "Severity");
+        form.Add(new StringContent("Valid NCR for non-existent approver test"), "Description");
+
+        var inspectResponse = await _client.PostAsync("/api/ncr-reports/inspect", form);
+        inspectResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var report = await inspectResponse.Content.ReadFromJsonAsync<NcrReportResponse>(_jsonOptions);
+
+        var decisionRequest = new NcrDecisionRequest
+        {
+            NcrReportId = report!.Id,
+            Decision = "Rework",
+            Notes = "Approver test note",
+            ApprovedByUserId = 99999 // Non-existent approver
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/ncr-decisions", decisionRequest);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(_jsonOptions);
+        problem.Should().NotBeNull();
+        problem!.Status.Should().Be((int)HttpStatusCode.NotFound);
+        problem.Title.Should().Be("Resource Not Found");
+        problem.Detail.Should().Contain("User with ID 99999 not found");
+    }
+
+    [Fact]
+    public async Task Stress14_AlreadyLockedLot_ReceivingMinorDefect_PreservesLockedStatus_AndIncrementsDefectQuantity()
+    {
+        // Arrange: Step 1 - Lock Lot 3 with a Major defect
+        using var form1 = new MultipartFormDataContent();
+        form1.Add(new StringContent("3"), "LotId");
+        form1.Add(new StringContent("3"), "StationId");
+        form1.Add(new StringContent("2"), "ReportedByUserId");
+        form1.Add(new StringContent("Crack"), "DefectType");
+        form1.Add(new StringContent("Major"), "Severity");
+        form1.Add(new StringContent("Initial major defect to lock lot 3"), "Description");
+
+        var inspectResponse1 = await _client.PostAsync("/api/ncr-reports/inspect", form1);
+        inspectResponse1.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        using var scope1 = _factory.Services.CreateScope();
+        var db1 = scope1.ServiceProvider.GetRequiredService<FactoryDbContext>();
+        var lotBefore = await db1.ProductionLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == 3);
+        lotBefore!.Status.Should().Be("Locked");
+        var initialDefectQty = lotBefore.DefectQuantity;
+
+        // Act: Step 2 - Submit a Minor defect on the already Locked lot
+        using var form2 = new MultipartFormDataContent();
+        form2.Add(new StringContent("3"), "LotId");
+        form2.Add(new StringContent("3"), "StationId");
+        form2.Add(new StringContent("2"), "ReportedByUserId");
+        form2.Add(new StringContent("Scratch"), "DefectType");
+        form2.Add(new StringContent("Minor"), "Severity");
+        form2.Add(new StringContent("Minor defect on already locked lot"), "Description");
+
+        var inspectResponse2 = await _client.PostAsync("/api/ncr-reports/inspect", form2);
+
+        // Assert
+        inspectResponse2.StatusCode.Should().Be(HttpStatusCode.Created);
+        var report2 = await inspectResponse2.Content.ReadFromJsonAsync<NcrReportResponse>(_jsonOptions);
+        report2!.LotStatus.Should().Be("Locked");
+
+        using var scope2 = _factory.Services.CreateScope();
+        var db2 = scope2.ServiceProvider.GetRequiredService<FactoryDbContext>();
+        var lotAfter = await db2.ProductionLots.AsNoTracking().FirstOrDefaultAsync(l => l.Id == 3);
+        lotAfter!.Status.Should().Be("Locked");
+        lotAfter.DefectQuantity.Should().Be(initialDefectQty + 1);
     }
 }

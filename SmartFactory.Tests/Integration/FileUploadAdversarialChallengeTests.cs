@@ -192,12 +192,13 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
         var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
 
         // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.RequestEntityTooLarge);
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem.Should().NotBeNull();
-        problem!.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
+        problem!.Title.Should().Be("Payload Too Large");
+        problem.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
 
         var filesAfter = Directory.GetFiles(_uploadDir);
         filesAfter.Length.Should().Be(filesBefore.Length, "Over-limit payload must never be written to disk.");
@@ -304,6 +305,70 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
 
         crashConnection.Close();
         crashConnection.Dispose();
+    }
+
+    [Fact]
+    public async Task Empirical_Exact5MbBoundary_IsAcceptedAndPersisted()
+    {
+        // Arrange
+        var exact5Mb = TestFileHelper.CreateExact5MbBytes();
+        using var form = CreateMultipartForm(1, 1, 2, "Crack", "Minor", "Exact 5MB test", exact5Mb, "exact5mb.jpg", "image/jpeg");
+
+        // Act
+        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var report = await response.Content.ReadFromJsonAsync<NcrReportResponse>(new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        report.Should().NotBeNull();
+        report!.ImageUrls.Should().HaveCount(1);
+        var diskPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", report.ImageUrls[0].TrimStart('/'));
+        File.Exists(diskPath).Should().BeTrue("5MB exact boundary must be persisted.");
+        if (File.Exists(diskPath))
+        {
+            File.Delete(diskPath);
+        }
+    }
+
+    [Fact]
+    public async Task Empirical_5MbPlusOneByte_IsRejectedWith400Or413ProblemDetails()
+    {
+        // Arrange
+        var overOneByte = TestFileHelper.Create5MbPlusOneBytes();
+        using var form = CreateMultipartForm(1, 1, 2, "Deformation", "Major", "5MB + 1 byte test", overOneByte, "over5mb1b.jpg", "image/jpeg");
+
+        // Act
+        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Title.Should().Be("Payload Too Large");
+        problem.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
+    }
+
+    [Fact]
+    public async Task Empirical_DisguisedExeExtension_WithValidJpegMagicBytes_IsRejectedWith400ProblemDetails()
+    {
+        // Arrange
+        var jpegBytes = TestFileHelper.CreateValidJpegBytes();
+        using var form = CreateMultipartForm(1, 1, 2, "Crack", "Minor", "Disguised exe extension test", jpegBytes, "disguised.exe", "image/jpeg");
+
+        // Act
+        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Detail.Should().Contain("extension '.exe' is not allowed");
     }
 
     private static MultipartFormDataContent CreateMultipartForm(

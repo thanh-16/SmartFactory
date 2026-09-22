@@ -28,15 +28,15 @@ public class WorkStationsController : ControllerBase
         var stations = await _workStationRepository.GetAllAsync(ct);
         var lots = await _lotRepository.GetAllAsync(ct);
 
-        var result = stations.Select(s => new WorkStationResponse
+        var result = stations.Select(stationItem => new WorkStationResponse
         {
-            Id = s.Id,
-            Code = s.Code,
-            Name = s.Name,
-            Description = s.Description,
-            IsActive = s.IsActive,
-            CreatedAt = s.CreatedAt,
-            ActiveLotsCount = lots.Count(l => l.WorkStationId == s.Id && l.Status == "InProgress")
+            Id = stationItem.Id,
+            Code = stationItem.Code,
+            Name = stationItem.Name,
+            Description = stationItem.Description,
+            IsActive = stationItem.IsActive,
+            CreatedAt = stationItem.CreatedAt,
+            ActiveLotsCount = lots.Count(lotItem => lotItem.WorkStationId == stationItem.Id && lotItem.Status == "InProgress")
         }).ToList();
 
         return Ok(result);
@@ -53,7 +53,7 @@ public class WorkStationsController : ControllerBase
             throw new NotFoundException($"WorkStation with ID {id} not found.");
         }
 
-        var lots = await _lotRepository.GetAllAsync(ct);
+        var activeLotsCount = await _lotRepository.CountActiveLotsByStationIdAsync(station.Id, ct);
 
         var response = new WorkStationResponse
         {
@@ -63,7 +63,7 @@ public class WorkStationsController : ControllerBase
             Description = station.Description,
             IsActive = station.IsActive,
             CreatedAt = station.CreatedAt,
-            ActiveLotsCount = lots.Count(l => l.WorkStationId == station.Id && l.Status == "InProgress")
+            ActiveLotsCount = activeLotsCount
         };
 
         return Ok(response);

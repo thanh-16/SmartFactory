@@ -107,12 +107,13 @@ public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationF
         var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
 
         // Assert
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.RequestEntityTooLarge);
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         problem.Should().NotBeNull();
-        problem!.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
+        problem!.Title.Should().Be("Payload Too Large");
+        problem.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
     }
 
     [Fact]

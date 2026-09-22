@@ -15,19 +15,26 @@ public class DashboardRepository : IDashboardRepository
 
     public async Task<DashboardSummaryResponse> GetSummaryAsync(CancellationToken ct = default)
     {
-        var lots = await _context.ProductionLots.AsNoTracking().ToListAsync(ct);
-        var ncrs = await _context.NcrReports.AsNoTracking().ToListAsync(ct);
+        var totalLots = await _context.ProductionLots.CountAsync(ct);
+        var inProgressLots = await _context.ProductionLots.CountAsync(lot => lot.Status == "InProgress", ct);
+        var lockedLots = await _context.ProductionLots.CountAsync(lot => lot.Status == "Locked", ct);
+        var completedLots = await _context.ProductionLots.CountAsync(lot => lot.Status == "Completed", ct);
+        var scrappedLots = await _context.ProductionLots.CountAsync(lot => lot.Status == "Scrapped", ct);
+
+        var totalNcrs = await _context.NcrReports.CountAsync(ct);
+        var pendingNcrs = await _context.NcrReports.CountAsync(ncr => ncr.Status == "Pending", ct);
+        var resolvedNcrs = await _context.NcrReports.CountAsync(ncr => ncr.Status == "Resolved", ct);
 
         return new DashboardSummaryResponse
         {
-            TotalLots = lots.Count,
-            InProgressLots = lots.Count(l => l.Status.Equals("InProgress", StringComparison.OrdinalIgnoreCase)),
-            LockedLots = lots.Count(l => l.Status.Equals("Locked", StringComparison.OrdinalIgnoreCase)),
-            CompletedLots = lots.Count(l => l.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase)),
-            ScrappedLots = lots.Count(l => l.Status.Equals("Scrapped", StringComparison.OrdinalIgnoreCase)),
-            TotalNcrs = ncrs.Count,
-            PendingNcrs = ncrs.Count(n => n.Status.Equals("Pending", StringComparison.OrdinalIgnoreCase)),
-            ResolvedNcrs = ncrs.Count(n => n.Status.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
+            TotalLots = totalLots,
+            InProgressLots = inProgressLots,
+            LockedLots = lockedLots,
+            CompletedLots = completedLots,
+            ScrappedLots = scrappedLots,
+            TotalNcrs = totalNcrs,
+            PendingNcrs = pendingNcrs,
+            ResolvedNcrs = resolvedNcrs
         };
     }
 
@@ -35,11 +42,11 @@ public class DashboardRepository : IDashboardRepository
     {
         var groups = await _context.NcrReports
             .AsNoTracking()
-            .GroupBy(r => r.DefectType)
-            .Select(g => new { DefectType = g.Key, Count = g.Count() })
-            .OrderByDescending(x => x.Count)
+            .GroupBy(report => report.DefectType)
+            .Select(group => new { DefectType = group.Key, Count = group.Count() })
+            .OrderByDescending(item => item.Count)
             .ToListAsync(ct);
 
-        return groups.Select(g => (g.DefectType, g.Count)).ToList();
+        return groups.Select(group => (group.DefectType, group.Count)).ToList();
     }
 }

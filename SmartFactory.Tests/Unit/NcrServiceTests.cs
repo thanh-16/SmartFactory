@@ -415,4 +415,64 @@ public class NcrServiceTests : IDisposable
         var lot = await _context.ProductionLots.FindAsync(2);
         lot!.Status.Should().Be(expectedLotStatus);
     }
+
+    [Fact]
+    public async Task ProcessDecisionAsync_WhenUserHasKcsRole_ThrowsConflictException()
+    {
+        // Arrange: Tạo NCR
+        var inspectResult = await _sut.CreateInspectionReportAsync(new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 1,
+            ReportedByUserId = 2,
+            DefectType = "Pore",
+            Severity = "Major",
+            Description = "Test porosity"
+        });
+
+        // Act: KCS User (Id = 2) cố gắng phê duyệt
+        var decisionRequest = new NcrDecisionRequest
+        {
+            NcrReportId = inspectResult.Id,
+            Decision = "Rework",
+            Notes = "KCS unauthorized attempt",
+            ApprovedByUserId = 2 // Lê Thị KCS (Role: KCS)
+        };
+
+        // Assert: Ném ConflictException
+        var act = async () => await _sut.ProcessDecisionAsync(decisionRequest);
+        await act.Should().ThrowAsync<ConflictException>()
+            .WithMessage("*không có thẩm quyền phê duyệt*");
+    }
+
+    [Fact]
+    public async Task ProcessDecisionAsync_WhenUserHasManagerRole_Succeeds()
+    {
+        // Arrange: Tạo NCR
+        var inspectResult = await _sut.CreateInspectionReportAsync(new NcrInspectionRequest
+        {
+            LotId = 1,
+            StationId = 1,
+            ReportedByUserId = 2,
+            DefectType = "Pore",
+            Severity = "Major",
+            Description = "Test porosity"
+        });
+
+        // Act: Manager User (Id = 3) phê duyệt
+        var decisionRequest = new NcrDecisionRequest
+        {
+            NcrReportId = inspectResult.Id,
+            Decision = "Rework",
+            Notes = "Manager approved rework",
+            ApprovedByUserId = 3 // Vũ Đình Giám Đốc (Role: Manager)
+        };
+
+        var result = await _sut.ProcessDecisionAsync(decisionRequest);
+
+        // Assert: Thành công
+        result.Should().NotBeNull();
+        result.Decision.Should().Be("Rework");
+        result.ApprovedByName.Should().Be("Vũ Đình Giám Đốc");
+    }
 }
