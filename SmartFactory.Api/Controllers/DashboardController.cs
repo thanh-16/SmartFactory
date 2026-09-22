@@ -30,4 +30,36 @@ public class DashboardController : ControllerBase
         var pareto = await _dashboardService.GetParetoAnalysisAsync(ct);
         return Ok(pareto);
     }
+
+    [HttpGet("spc")]
+    [ProducesResponseType(typeof(List<StationSpcMetricsDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetAllSpcMetrics(
+        [FromServices] ISpcAnalysisService spcService, 
+        CancellationToken ct)
+    {
+        var result = await spcService.GetAllStationsSpcMetricsAsync(ct);
+        return Ok(result);
+    }
+
+    [HttpGet("spc/{stationId:int}")]
+    [ProducesResponseType(typeof(StationSpcMetricsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStationSpc(
+        int stationId, 
+        [FromServices] ISpcAnalysisService spcService, 
+        CancellationToken ct)
+    {
+        var result = await spcService.GetStationSpcMetricsAsync(stationId, ct);
+        if (result == null)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Work Station Not Found",
+                Detail = $"Work station with ID {stationId} does not exist.",
+                Instance = HttpContext.Request.Path
+            });
+        }
+        return Ok(result);
+    }
 }

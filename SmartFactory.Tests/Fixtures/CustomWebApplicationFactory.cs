@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using SmartFactory.Api.Data;
 
 namespace SmartFactory.Tests.Fixtures;
@@ -15,6 +17,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.ConfigureServices(services =>
         {
+            // Suppress background workers (e.g. SpcMonitoringBackgroundService) during testing to avoid SQLite locks and race conditions
+            services.RemoveAll<IHostedService>();
+
             // Remove existing DbContext options
             var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<FactoryDbContext>));
             if (descriptor != null)

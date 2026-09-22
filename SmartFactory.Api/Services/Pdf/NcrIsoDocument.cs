@@ -15,11 +15,13 @@ public class NcrIsoDocument : IDocument
 {
     private readonly NcrReport _report;
     private readonly byte[]? _defectImageBytes;
+    private readonly StationSpcMetricsDto? _spcMetrics;
 
-    public NcrIsoDocument(NcrReport report, byte[]? defectImageBytes)
+    public NcrIsoDocument(NcrReport report, byte[]? defectImageBytes, StationSpcMetricsDto? spcMetrics = null)
     {
         _report = report;
         _defectImageBytes = defectImageBytes;
+        _spcMetrics = spcMetrics;
     }
 
     public DocumentMetadata GetMetadata() => new()
@@ -100,10 +102,16 @@ public class NcrIsoDocument : IDocument
             // 3. PHÂN TÍCH NGUYÊN NHÂN GỐC RỄ (RCA) & KẾT QUẢ AI VISION
             column.Item().Element(ComposeRootCauseAndAiSection);
 
-            // 4. QUYẾT ĐỊNH XỬ LÝ CỦA QUẢN ĐỐC
+            // 4. KIỂM SOÁT THỐNG KÊ QUÁ TRÌNH (SPC)
+            if (_spcMetrics != null)
+            {
+                column.Item().Element(c => ComposeSpcProcessSection(c, _spcMetrics));
+            }
+
+            // 5. QUYẾT ĐỊNH XỬ LÝ CỦA QUẢN ĐỐC
             column.Item().Element(ComposeDecisionSection);
 
-            // 5. CHỮ KÝ ĐIỆN TỬ VÀ DẤU PHÊ DUYỆT
+            // 6. CHỮ KÝ ĐIỆN TỬ VÀ DẤU PHÊ DUYỆT
             column.Item().Element(ComposeSignaturesSection);
         });
     }
