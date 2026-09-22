@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using SmartFactory.Api.Data;
@@ -98,6 +99,9 @@ public class NcrService : INcrService
                     Severity = request.Severity,
                     Description = request.Description,
                     Status = "Pending",
+                    RootCauseAnalysisJson = string.IsNullOrWhiteSpace(request.RootCauseAnalysisJson)
+                        ? JsonSerializer.Serialize(AiInspectionService.GenerateHeuristicRootCauseAnalysis(request.DefectType, request.Description))
+                        : request.RootCauseAnalysisJson,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -137,6 +141,8 @@ public class NcrService : INcrService
                     Severity = ncrReport.Severity,
                     Description = ncrReport.Description,
                     Status = ncrReport.Status,
+                    RootCauseAnalysisJson = ncrReport.RootCauseAnalysisJson,
+                    RootCauseAnalysis = DeserializeRca(ncrReport.RootCauseAnalysisJson),
                     CreatedAt = ncrReport.CreatedAt,
                     ImageUrls = string.IsNullOrEmpty(savedImageUrl) ? new List<string>() : new List<string> { savedImageUrl }
                 };
@@ -340,6 +346,8 @@ public class NcrService : INcrService
             Severity = reportItem.Severity,
             Description = reportItem.Description,
             Status = reportItem.Status,
+            RootCauseAnalysisJson = reportItem.RootCauseAnalysisJson,
+            RootCauseAnalysis = DeserializeRca(reportItem.RootCauseAnalysisJson),
             CreatedAt = reportItem.CreatedAt,
             ImageUrls = reportItem.DefectImages.Select(img => img.ImageUrl).ToList()
         }).ToList();
@@ -372,8 +380,24 @@ public class NcrService : INcrService
             Severity = ncrReport.Severity,
             Description = ncrReport.Description,
             Status = ncrReport.Status,
+            RootCauseAnalysisJson = ncrReport.RootCauseAnalysisJson,
+            RootCauseAnalysis = DeserializeRca(ncrReport.RootCauseAnalysisJson),
             CreatedAt = ncrReport.CreatedAt,
             ImageUrls = ncrReport.DefectImages.Select(img => img.ImageUrl).ToList()
         };
+    }
+
+    private static RootCauseAnalysisResult? DeserializeRca(string? rcaJson)
+    {
+        if (string.IsNullOrWhiteSpace(rcaJson)) return null;
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            return JsonSerializer.Deserialize<RootCauseAnalysisResult>(rcaJson, options);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

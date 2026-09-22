@@ -79,6 +79,31 @@ public class NcrReportsController : ControllerBase
                 : $"{request.Description} (AI: {aiAnalysis.RootCauseAnalysis})";
         }
 
+        if (string.IsNullOrWhiteSpace(request.RootCauseAnalysisJson))
+        {
+            byte[]? imageBytes = null;
+            string? mimeType = null;
+
+            if (request.Image != null && request.Image.Length > 0)
+            {
+                using var ms = new MemoryStream();
+                await request.Image.CopyToAsync(ms, ct);
+                imageBytes = ms.ToArray();
+                mimeType = request.Image.ContentType;
+            }
+
+            var rca = await _aiService.InvestigateRootCauseAsync(
+                request.DefectType,
+                request.Severity,
+                request.Description ?? string.Empty,
+                request.Image?.FileName,
+                imageBytes,
+                mimeType,
+                ct);
+
+            request.RootCauseAnalysisJson = System.Text.Json.JsonSerializer.Serialize(rca);
+        }
+
         if (!ModelState.IsValid)
         {
             return BadRequest(ModelState);
@@ -127,5 +152,22 @@ public class NcrReportsController : ControllerBase
         return download 
             ? File(pdfBytes, "application/pdf", fileName) 
             : File(pdfBytes, "application/pdf");
+    }
+
+    [HttpGet("{id:int}/root-cause")]
+    [ProducesResponseType(typeof(RootCauseAnalysisResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRootCause(int id, CancellationToken ct)
+    {
+        var report = await _ncrService.GetReportByIdAsync(id, ct);
+        if (report == null)
+        {
+            throw new NotFoundException($"NCR Report with ID {id} not found.");
+        }
+
+        var rootCause = report.RootCauseAnalysis 
+            ?? AiInspectionService.GenerateHeuristicRootCauseAnalysis(report.DefectType, report.Description);
+
+        return Ok(rootCause);
     }
 }

@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using QuestPDF.Drawing;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using SmartFactory.Api.Models.DTOs;
 using SmartFactory.Api.Models.Entities;
 
 namespace SmartFactory.Api.Pdf;
@@ -172,11 +175,111 @@ public class NcrIsoDocument : IDocument
 
     private void ComposeRootCauseAndAiSection(IContainer container)
     {
+        RootCauseAnalysisResult? rca = null;
+        if (!string.IsNullOrWhiteSpace(_report.RootCauseAnalysisJson))
+        {
+            try
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                rca = JsonSerializer.Deserialize<RootCauseAnalysisResult>(_report.RootCauseAnalysisJson, options);
+            }
+            catch
+            {
+                rca = null;
+            }
+        }
+
+        if (rca != null && rca.FiveWhys != null && rca.FiveWhys.Count > 0)
+        {
+            ComposeAdvancedRootCauseSection(container, rca);
+        }
+        else
+        {
+            container.Border(0.75f).BorderColor("#CBD5E1").Padding(6).Column(col =>
+            {
+                col.Item().Text("PHÂN TÍCH NGUYÊN NHÂN GỐC RỄ (RCA) & KẾT QUẢ AI VISION:").Bold().FontSize(8.5f).FontColor("#1E3A8A");
+                col.Item().PaddingTop(3).Text($"• Mô tả hiện trường KCS: {_report.Description}").FontSize(8.5f);
+                col.Item().PaddingTop(2).Text($"• Đánh giá từ hệ sinh thái AI: Tự động phân loại khuyết tật '{_report.DefectType}' mức độ '{_report.Severity}'. Khuyến nghị kích hoạt khóa lô tức thời và hiệu chuẩn máy gia công.").FontSize(8).Italic().FontColor("#334155");
+            });
+        }
+    }
+
+    private void ComposeAdvancedRootCauseSection(IContainer container, RootCauseAnalysisResult rca)
+    {
         container.Border(0.75f).BorderColor("#CBD5E1").Padding(6).Column(col =>
         {
-            col.Item().Text("PHÂN TÍCH NGUYÊN NHÂN GỐC RỄ (RCA) & KẾT QUẢ AI VISION:").Bold().FontSize(8.5f).FontColor("#1E3A8A");
-            col.Item().PaddingTop(3).Text($"• Mô tả hiện trường KCS: {_report.Description}").FontSize(8.5f);
-            col.Item().PaddingTop(2).Text($"• Đánh giá từ hệ sinh thái AI: Tự động phân loại khuyết tật '{_report.DefectType}' mức độ '{_report.Severity}'. Khuyến nghị kích hoạt khóa lô tức thời và hiệu chuẩn máy gia công.").FontSize(8).Italic().FontColor("#334155");
+            col.Item().Row(r =>
+            {
+                r.RelativeItem().Text("ĐIỀU TRA NGUYÊN NHÂN GỐC RỄ (5-WHY & ISHIKAWA 6M):").Bold().FontSize(8.5f).FontColor("#1E3A8A");
+                r.ConstantItem(150).AlignRight().Text($"Động cơ: {rca.EngineProvider}").FontSize(7).Italic().FontColor("#64748B");
+            });
+
+            // 1. Chuỗi 5-Why
+            col.Item().PaddingTop(4).Column(whyCol =>
+            {
+                whyCol.Spacing(2);
+                foreach (var item in rca.FiveWhys)
+                {
+                    var isFinal = item.Step == 5;
+                    whyCol.Item().Background(isFinal ? "#FEF2F2" : "#F8FAFC")
+                          .Border(0.5f).BorderColor(isFinal ? "#EF4444" : "#E2E8F0")
+                          .Padding(3)
+                          .Row(row =>
+                          {
+                              row.ConstantItem(45).Text($"Why {item.Step}:").Bold().FontSize(7.5f).FontColor(isFinal ? "#DC2626" : "#1E3A8A");
+                              row.RelativeItem().Column(c =>
+                              {
+                                  c.Item().Text(item.Question).FontSize(7.5f).Italic().FontColor("#475569");
+                                  c.Item().Text($"➔ {item.Answer}").FontSize(7.5f).Bold().FontColor(isFinal ? "#991B1B" : "#1E293B");
+                              });
+                          });
+                }
+            });
+
+            // 2. Lưới Xương Cá 6M (Table 3 cột x 2 hàng)
+            col.Item().PaddingTop(5).Text("SƠ ĐỒ PHÂN BỔ NGUYÊN NHÂN ISHIKAWA 6M:").Bold().FontSize(8).FontColor("#1E3A8A");
+            col.Item().PaddingTop(2).Table(grid =>
+            {
+                grid.ColumnsDefinition(cd =>
+                {
+                    cd.RelativeColumn();
+                    cd.RelativeColumn();
+                    cd.RelativeColumn();
+                });
+
+                RenderIshikawaCell(grid, "1. CON NGƯỜI (MAN)", rca.IshikawaCategories.GetValueOrDefault(IshikawaCategoryNames.Man), "#2563EB");
+                RenderIshikawaCell(grid, "2. MÁY MÓC (MACHINE)", rca.IshikawaCategories.GetValueOrDefault(IshikawaCategoryNames.Machine), "#EA580C");
+                RenderIshikawaCell(grid, "3. VẬT LIỆU (MATERIAL)", rca.IshikawaCategories.GetValueOrDefault(IshikawaCategoryNames.Material), "#059669");
+                RenderIshikawaCell(grid, "4. PHƯƠNG PHÁP (METHOD)", rca.IshikawaCategories.GetValueOrDefault(IshikawaCategoryNames.Method), "#7C3AED");
+                RenderIshikawaCell(grid, "5. ĐO LƯỜNG (MEASUREMENT)", rca.IshikawaCategories.GetValueOrDefault(IshikawaCategoryNames.Measurement), "#CA8A04");
+                RenderIshikawaCell(grid, "6. MÔI TRƯỜNG (ENVIRONMENT)", rca.IshikawaCategories.GetValueOrDefault(IshikawaCategoryNames.Environment), "#475569");
+            });
+
+            // 3. CAPA Actions Box
+            col.Item().PaddingTop(4).Background("#EFF6FF").Border(0.5f).BorderColor("#BFDBFE").Padding(4).Column(capa =>
+            {
+                capa.Item().Text($"• Khắc phục trước mắt (Corrective): {rca.RecommendedCorrectiveAction}").FontSize(7.5f).Bold().FontColor("#1E40AF");
+                capa.Item().Text($"• Phòng ngừa lâu dài (Preventive): {rca.RecommendedPreventiveAction}").FontSize(7.5f).Bold().FontColor("#15803D");
+            });
+        });
+    }
+
+    private void RenderIshikawaCell(TableDescriptor grid, string title, List<string>? items, string colorHex)
+    {
+        grid.Cell().Border(0.5f).BorderColor("#E2E8F0").Padding(3).Column(col =>
+        {
+            col.Item().Text(title).Bold().FontSize(7).FontColor(colorHex);
+            if (items != null && items.Count > 0)
+            {
+                foreach (var cause in items)
+                {
+                    col.Item().Text($"• {cause}").FontSize(6.5f).FontColor("#334155");
+                }
+            }
+            else
+            {
+                col.Item().Text("• Không ghi nhận bất thường").FontSize(6.5f).Italic().FontColor("#94A3B8");
+            }
         });
     }
 

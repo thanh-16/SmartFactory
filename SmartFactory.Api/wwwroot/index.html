@@ -545,6 +545,12 @@
         <div class="flex justify-between"><span class="text-slate-400">Khuyết tật:</span> <span id="modal-defect-type" class="text-amber-400 font-semibold">Crack</span></div>
         <div class="flex justify-between"><span class="text-slate-400">Mức độ:</span> <span id="modal-severity" class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400">Critical</span></div>
         <div class="pt-1 text-slate-300 italic" id="modal-description">"..."</div>
+        <div class="pt-1 flex justify-end">
+          <button type="button" onclick="openRcaModal(state.activeModalNcrId)" class="px-2.5 py-1 rounded-lg bg-indigo-900/40 hover:bg-indigo-800 text-indigo-300 border border-indigo-700/50 text-[11px] font-semibold flex items-center gap-1.5 transition">
+            <i data-lucide="git-branch" class="w-3 h-3"></i>
+            Xem Điều Tra 5-Why & Ishikawa 6M
+          </button>
+        </div>
       </div>
 
       <!-- Action Choice -->
@@ -590,6 +596,102 @@
         <button type="button" id="btn-confirm-decision" onclick="submitDecision()" class="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-500/20">
           <i data-lucide="check" class="w-4 h-4"></i>
           Phê Duyệt & Mở Khóa
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: ĐIỀU TRA NGUYÊN NHÂN GỐC RỄ (5-WHY & ISHIKAWA 6M MODAL)           -->
+  <!-- ========================================================================= -->
+  <div id="rca-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in overflow-y-auto">
+    <div class="glass-card max-w-4xl w-full max-h-[90vh] overflow-y-auto rounded-2xl p-6 border-slate-700 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+            <i data-lucide="git-branch" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h4 class="text-sm font-bold text-white flex items-center gap-2">
+              Điều Tra Nguyên Nhân Gốc Rễ (5-Why & Ishikawa 6M)
+              <span id="rca-engine-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-900/50 text-indigo-300 border border-indigo-700/50">Gemini-1.5-Flash</span>
+            </h4>
+            <span id="rca-ncr-number" class="text-xs font-mono text-emerald-400">NCR-2026-0000</span> • <span id="rca-defect-title" class="text-xs text-slate-300">Crack (Critical)</span>
+          </div>
+        </div>
+        <button onclick="closeRcaModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Root Cause Highlight -->
+      <div class="p-3.5 rounded-xl bg-red-950/40 border border-red-800/50 flex items-start gap-3">
+        <div class="w-7 h-7 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 mt-0.5">
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+        </div>
+        <div class="space-y-1 text-xs">
+          <span class="font-bold text-red-300 uppercase tracking-wider text-[10px]">Nguyên Nhân Cốt Lõi Hệ Thống (Primary Root Cause)</span>
+          <p id="rca-primary-cause" class="text-slate-200 font-semibold leading-relaxed">...</p>
+        </div>
+      </div>
+
+      <!-- 2 Sections -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- 5-Why Timeline -->
+        <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h5 class="text-xs font-bold text-white flex items-center gap-1.5">
+              <i data-lucide="list-ordered" class="w-3.5 h-3.5 text-indigo-400"></i>
+              Chuỗi 5-Why (5 Tầng Phân Tích)
+            </h5>
+            <span class="text-[10px] text-slate-400">Tuần tự đào sâu</span>
+          </div>
+          <div id="rca-5why-container" class="space-y-2 text-xs">
+            <!-- Injected via JS -->
+          </div>
+        </div>
+
+        <!-- Ishikawa 6M Grid -->
+        <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h5 class="text-xs font-bold text-white flex items-center gap-1.5">
+              <i data-lucide="network" class="w-3.5 h-3.5 text-emerald-400"></i>
+              Sơ Đồ Xương Cá Ishikawa 6M
+            </h5>
+            <span class="text-[10px] text-slate-400">6 Danh mục chuẩn ISO</span>
+          </div>
+          <div id="rca-ishikawa-container" class="grid grid-cols-2 gap-2 text-xs">
+            <!-- Injected via JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- CAPA Actions Box -->
+      <div class="bg-slate-900/80 p-4 rounded-xl border border-blue-900/40 space-y-2 text-xs">
+        <h5 class="font-bold text-blue-300 flex items-center gap-1.5">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5 text-blue-400"></i>
+          Khuyến Nghị Hành Động Khắc Phục & Phòng Ngừa (CAPA)
+        </h5>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          <div class="p-2.5 rounded-lg bg-blue-950/40 border border-blue-800/40">
+            <span class="text-[10px] font-bold text-blue-400 uppercase">Khắc Phục Trước Mắt (Corrective)</span>
+            <p id="rca-corrective-action" class="text-slate-200 mt-0.5">...</p>
+          </div>
+          <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/40">
+            <span class="text-[10px] font-bold text-emerald-400 uppercase">Phòng Ngừa Lâu Dài (Preventive)</span>
+            <p id="rca-preventive-action" class="text-slate-200 mt-0.5">...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Buttons -->
+      <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+        <button type="button" onclick="copyCapaToSupervisorNotes()" class="px-3 py-1.5 rounded-xl bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 text-xs font-semibold flex items-center gap-1.5 transition">
+          <i data-lucide="clipboard-copy" class="w-3.5 h-3.5"></i>
+          Sao Chép Vào Biên Bản Duyệt
+        </button>
+        <button type="button" onclick="closeRcaModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300">
+          Đóng
         </button>
       </div>
     </div>
@@ -936,6 +1038,9 @@
                 <div class="text-[11px] text-slate-400 mt-0.5">${r.lotNumber} • ${r.defectType}</div>
               </div>
               <div class="flex items-center gap-2">
+                <button onclick="openRcaModal(${r.id})" title="Xem 5-Why & Ishikawa 6M" class="px-2 py-1 rounded-lg bg-indigo-950/40 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/50 text-[11px] font-medium flex items-center gap-1 transition">
+                  🔍 5-Why
+                </button>
                 <a href="/api/ncr-reports/${r.id}/export-pdf" target="_blank" title="Xuất PDF ISO 9001" class="px-2 py-1 rounded-lg bg-indigo-900/40 hover:bg-indigo-800 text-indigo-300 border border-indigo-700/50 text-[11px] font-medium flex items-center gap-1 transition">
                   📄 PDF
                 </a>
@@ -1122,6 +1227,10 @@
 
               <!-- Quick Disposition Buttons -->
               <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                <button onclick="openRcaModal(${ncr.id})" class="px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 text-xs font-semibold flex items-center gap-1.5 transition">
+                  <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
+                  5-Why & 6M
+                </button>
                 <a href="/api/ncr-reports/${ncr.id}/export-pdf" target="_blank" class="px-3 py-1.5 rounded-lg bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 text-xs font-semibold flex items-center gap-1.5 transition">
                   📄 Xuất PDF
                 </a>
@@ -1348,6 +1457,136 @@
           text.textContent = "SignalR Offline (Tự thử lại)";
           setTimeout(setupSignalR, 5000);
         });
+    }
+
+    // =========================================================================
+    // 5-WHY & ISHIKAWA 6M RCA MODAL LOGIC
+    // =========================================================================
+    let currentRcaResult = null;
+
+    async function openRcaModal(ncrId) {
+      if (!ncrId) return;
+      try {
+        let ncr = state.pendingNcrs.find(r => r.id === ncrId);
+        if (!ncr || !ncr.rootCauseAnalysis) {
+          const res = await fetch(`/api/ncr-reports/${ncrId}`);
+          if (res.ok) {
+            ncr = await res.json();
+          }
+        }
+        if (!ncr) return;
+
+        let rca = ncr.rootCauseAnalysis;
+        if (!rca && ncr.rootCauseAnalysisJson) {
+          try {
+            rca = JSON.parse(ncr.rootCauseAnalysisJson);
+          } catch(e) {
+            rca = null;
+          }
+        }
+
+        if (!rca) {
+          rca = {
+            fiveWhys: [
+              { step: 1, question: `Tại sao xuất hiện khuyết tật ${ncr.defectType}?`, answer: `Ghi nhận bất thường thực tế: ${ncr.description}` },
+              { step: 2, question: "Tại sao lại xảy ra hiện tượng trên?", answer: "Thông số gá đặt hoặc điều kiện gia công bị sai lệch." },
+              { step: 3, question: "Tại sao thông số bị sai lệch?", answer: "Chưa hiệu chuẩn thiết bị trước chu kỳ gia công." },
+              { step: 4, question: "Tại sao thiết bị chưa được hiệu chuẩn?", answer: "Kế hoạch bảo dưỡng định kỳ bị trễ." },
+              { step: 5, question: "Tại sao kế hoạch bảo dưỡng bị trễ?", answer: "Thiếu hệ thống nhắc nhở tự động theo giờ chạy máy." }
+            ],
+            ishikawaCategories: {
+              Man: ["Thao tác công nhân cần được kiểm tra lại"],
+              Machine: ["Máy móc cần được cân chỉnh gốc"],
+              Material: ["Nguyên vật liệu cần kiểm định xuất xứ"],
+              Method: ["Quy trình thao tác chuẩn SOP cần bổ sung FAI"],
+              Measurement: ["Dụng cụ đo cần kiểm định lại"],
+              Environment: ["Điều kiện nhiệt độ, độ ẩm nhà xưởng"]
+            },
+            primaryRootCause: `Sự cố ${ncr.defectType} do thiếu kiểm soát thông số gá đặt và quy trình kiểm tra đầu ca.`,
+            recommendedCorrectiveAction: "Khóa lô hàng, dừng máy kiểm tra và hiệu chuẩn lại cữ chặn.",
+            recommendedPreventiveAction: "Chuẩn hóa bảng kiểm tra FAI và thực hiện 5S đầu giờ.",
+            engineProvider: "SmartHeuristicFallback (Offline)",
+            confidence: 0.90
+          };
+        }
+
+        currentRcaResult = rca;
+
+        document.getElementById('rca-ncr-number').textContent = ncr.ncrNumber;
+        document.getElementById('rca-defect-title').textContent = `${ncr.defectType} (${ncr.severity})`;
+        document.getElementById('rca-engine-badge').textContent = rca.engineProvider || 'Gemini-1.5-Flash';
+        document.getElementById('rca-primary-cause').textContent = rca.primaryRootCause || 'Đang thẩm tra nguyên nhân cốt lõi.';
+        document.getElementById('rca-corrective-action').textContent = rca.recommendedCorrectiveAction || 'Khóa lô và cách ly sản phẩm lỗi.';
+        document.getElementById('rca-preventive-action').textContent = rca.recommendedPreventiveAction || 'Thực hiện bảo trì phòng ngừa và đào tạo lại nhân sự.';
+
+        // Render 5-Why
+        const whyContainer = document.getElementById('rca-5why-container');
+        if (rca.fiveWhys && rca.fiveWhys.length > 0) {
+          whyContainer.innerHTML = rca.fiveWhys.map(w => {
+            const isFinal = w.step === 5;
+            const bgClass = isFinal ? 'bg-red-950/30 border-red-800/60' : 'bg-slate-950/40 border-slate-800';
+            const badgeClass = isFinal ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30';
+            return `
+              <div class="p-2.5 rounded-lg border ${bgClass} space-y-1">
+                <div class="flex items-center justify-between">
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${badgeClass}">Why ${w.step}${isFinal ? ' • Root Cause' : ''}</span>
+                  <span class="text-[10px] text-slate-400 italic">${w.question}</span>
+                </div>
+                <p class="text-xs font-semibold ${isFinal ? 'text-red-300' : 'text-slate-200'}">➔ ${w.answer}</p>
+              </div>
+            `;
+          }).join('');
+        } else {
+          whyContainer.innerHTML = '<p class="text-slate-400 text-xs text-center py-4">Chưa có dữ liệu 5-Why.</p>';
+        }
+
+        // Render Ishikawa 6M
+        const ishikawaContainer = document.getElementById('rca-ishikawa-container');
+        const cats = [
+          { key: 'Man', label: '1. Con Người (Man)', color: 'text-blue-400 border-blue-800/40 bg-blue-950/20' },
+          { key: 'Machine', label: '2. Máy Móc (Machine)', color: 'text-amber-400 border-amber-800/40 bg-amber-950/20' },
+          { key: 'Material', label: '3. Vật Liệu (Material)', color: 'text-emerald-400 border-emerald-800/40 bg-emerald-950/20' },
+          { key: 'Method', label: '4. Phương Pháp (Method)', color: 'text-purple-400 border-purple-800/40 bg-purple-950/20' },
+          { key: 'Measurement', label: '5. Đo Lường (Measurement)', color: 'text-yellow-400 border-yellow-800/40 bg-yellow-950/20' },
+          { key: 'Environment', label: '6. Môi Trường (Environment)', color: 'text-slate-400 border-slate-700/40 bg-slate-900/30' }
+        ];
+
+        const ishiData = rca.ishikawaCategories || {};
+        ishikawaContainer.innerHTML = cats.map(c => {
+          const items = ishiData[c.key] || [];
+          return `
+            <div class="p-2.5 rounded-lg border ${c.color} space-y-1">
+              <span class="text-[10px] font-bold block uppercase tracking-wide">${c.label}</span>
+              ${items.length > 0 ? `
+                <ul class="text-[11px] text-slate-300 space-y-0.5 list-disc list-inside">
+                  ${items.map(it => `<li class="truncate" title="${it}">${it}</li>`).join('')}
+                </ul>
+              ` : `
+                <span class="text-[10px] text-slate-400 italic">Không có bất thường</span>
+              `}
+            </div>
+          `;
+        }).join('');
+
+        document.getElementById('rca-modal').classList.remove('hidden');
+        lucide.createIcons();
+      } catch (err) {
+        console.error('Error opening RCA modal:', err);
+      }
+    }
+
+    function closeRcaModal() {
+      document.getElementById('rca-modal').classList.add('hidden');
+    }
+
+    function copyCapaToSupervisorNotes() {
+      if (!currentRcaResult) return;
+      const notesBox = document.getElementById('modal-notes');
+      if (notesBox) {
+        notesBox.value = `[CAPA Kỹ Thuật] ${currentRcaResult.recommendedCorrectiveAction}. Phòng ngừa: ${currentRcaResult.recommendedPreventiveAction}`;
+      }
+      closeRcaModal();
+      alert('Đã sao chép nội dung CAPA vào ô chỉ đạo của Quản đốc!');
     }
 
     // App Initialization on DOM Ready

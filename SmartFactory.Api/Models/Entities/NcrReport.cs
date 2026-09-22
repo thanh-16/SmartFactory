@@ -34,6 +34,8 @@ public class NcrReport
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public string NcrStatus { get => Status; set => Status = value; }
 
+    public string? RootCauseAnalysisJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<DefectImage> DefectImages { get; set; } = new List<DefectImage>();
