@@ -63,6 +63,7 @@ public class FactoryDbContext : DbContext
             entity.Property(e => e.DefectType).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Severity).IsRequired().HasMaxLength(50);
             entity.Property(e => e.Status).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.RootCauseAnalysisJson).HasMaxLength(8000).IsRequired(false);
             entity.HasIndex(e => e.NcrNumber).IsUnique();
 
             entity.HasOne(e => e.ProductionLot)

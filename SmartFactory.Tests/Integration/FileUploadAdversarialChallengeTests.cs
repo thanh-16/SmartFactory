@@ -117,31 +117,54 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
     [Fact]
     public async Task Empirical_FakeExeDisguisedAsJpg_IsRejectedWith400ProblemDetails_AndLeavesNoOrphan()
     {
-        // Arrange
-        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
-        var fakeExe = TestFileHelper.CreateFakeExeBytes();
-        using var form = CreateMultipartForm(1, 1, 2, "Crack", "Major", "Fake exe test", fakeExe, "trojan.jpg", "image/jpeg");
+        // Arrange: Isolated test subfolder
+        var isolatedWebRoot = Path.Combine(Path.GetTempPath(), "SmartFactory_FakeExe_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(isolatedWebRoot);
 
-        // Act
-        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
-
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Invalid File Format");
-        problem.Detail.Should().Contain("Executable files (.exe) are strictly prohibited");
-
-        var filesAfter = Directory.GetFiles(_uploadDir);
-        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
-        var hasExecutable = newlyCreated.Any(f =>
+        try
         {
-            var bytes = File.ReadAllBytes(f);
-            return bytes.Length >= 2 && bytes[0] == 0x4D && bytes[1] == 0x5A;
-        });
-        hasExecutable.Should().BeFalse("Rejected fake .exe must never leave an executable file on disk.");
+            using var isolatedFactory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(services =>
+                {
+                    var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFileStorageService));
+                    if (descriptor != null)
+                    {
+                        services.Remove(descriptor);
+                    }
+                    services.AddScoped<IFileStorageService>(_ => new FileStorageService(isolatedWebRoot));
+                });
+            });
+
+            var client = isolatedFactory.CreateClient();
+            var fakeExe = TestFileHelper.CreateFakeExeBytes();
+            using var form = CreateMultipartForm(1, 1, 2, "Crack", "Major", "Fake exe test", fakeExe, "trojan.jpg", "image/jpeg");
+
+            // Act
+            var response = await client.PostAsync("/api/ncr-reports/inspect", form);
+
+            // Assert
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+            var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+            problem.Should().NotBeNull();
+            problem!.Title.Should().Be("Invalid File Format");
+            problem.Detail.Should().Contain("Executable files (.exe) are strictly prohibited");
+
+            var uploadDir = Path.Combine(isolatedWebRoot, "uploads", "defects");
+            if (Directory.Exists(uploadDir))
+            {
+                Directory.GetFiles(uploadDir).Should().BeEmpty("Rejected fake .exe must never leave an executable file on disk.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedWebRoot))
+            {
+                try { Directory.Delete(isolatedWebRoot, recursive: true); } catch { /* Ignore lock */ }
+            }
+        }
     }
 
     [Fact]
@@ -166,51 +189,108 @@ public class FileUploadAdversarialChallengeTests : IClassFixture<CustomWebApplic
     [Fact]
     public async Task Empirical_ZeroByteFile_IsRejectedWith400ProblemDetails_AndLeavesNoOrphan()
     {
-        // Arrange
-        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
-        var zeroBytes = TestFileHelper.CreateZeroBytes();
-        using var form = CreateMultipartForm(1, 1, 2, "Crack", "Minor", "0-byte test", zeroBytes, "empty.jpg", "image/jpeg");
+        // Arrange: Isolated test subfolder
+        var isolatedWebRoot = Path.Combine(Path.GetTempPath(), "SmartFactory_ZeroByte_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(isolatedWebRoot);
 
-        // Act
-        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+        try
+        {
+            using var isolatedFactory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(services =>
+                {
+                    var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFileStorageService));
+                    if (descriptor != null)
+                    {
+                        services.Remove(descriptor);
+                    }
+                    services.AddScoped<IFileStorageService>(_ => new FileStorageService(isolatedWebRoot));
+                });
+            });
 
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+            var client = isolatedFactory.CreateClient();
+            var zeroBytes = TestFileHelper.CreateZeroBytes();
+            using var form = CreateMultipartForm(1, 1, 2, "Crack", "Minor", "0-byte test", zeroBytes, "empty.jpg", "image/jpeg");
 
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Invalid File Format");
-        problem.Detail.Should().Contain("File is empty or zero bytes");
+            // Act
+            var response = await client.PostAsync("/api/ncr-reports/inspect", form);
 
-        var filesAfter = Directory.GetFiles(_uploadDir);
-        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
-        newlyCreated.Should().NotContain(f => new FileInfo(f).Length == 0, "0-byte file must never be written to disk.");
+            // Assert
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+            var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+            problem.Should().NotBeNull();
+            problem!.Title.Should().Be("Invalid File Format");
+            problem.Detail.Should().Contain("File is empty or zero bytes");
+
+            var uploadDir = Path.Combine(isolatedWebRoot, "uploads", "defects");
+            if (Directory.Exists(uploadDir))
+            {
+                Directory.GetFiles(uploadDir).Should().BeEmpty("0-byte file must never be written to disk.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedWebRoot))
+            {
+                try { Directory.Delete(isolatedWebRoot, recursive: true); } catch { /* Ignore lock */ }
+            }
+        }
     }
 
     [Fact]
     public async Task Empirical_Over5MbFile_IsRejectedWith400Or413ProblemDetails_AndLeavesNoOrphan()
     {
-        // Arrange
-        var filesBefore = Directory.GetFiles(_uploadDir).ToHashSet();
-        var largeBytes = TestFileHelper.CreateOver5MbBytes();
-        using var form = CreateMultipartForm(1, 1, 2, "Deformation", "Major", "Over 5MB test", largeBytes, "huge.jpg", "image/jpeg");
+        // Arrange: Isolated test root directory completely eliminates shared-folder race conditions
+        var isolatedWebRoot = Path.Combine(Path.GetTempPath(), "SmartFactory_Over5Mb_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(isolatedWebRoot);
 
-        // Act
-        var response = await _client.PostAsync("/api/ncr-reports/inspect", form);
+        try
+        {
+            using var isolatedFactory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(services =>
+                {
+                    var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFileStorageService));
+                    if (descriptor != null)
+                    {
+                        services.Remove(descriptor);
+                    }
+                    services.AddScoped<IFileStorageService>(_ => new FileStorageService(isolatedWebRoot));
+                });
+            });
 
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
-        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+            var client = isolatedFactory.CreateClient();
+            var largeBytes = TestFileHelper.CreateOver5MbBytes();
+            using var form = CreateMultipartForm(1, 1, 2, "Deformation", "Major", "Over 5MB test", largeBytes, "huge.jpg", "image/jpeg");
 
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        problem.Should().NotBeNull();
-        problem!.Title.Should().Be("Payload Too Large");
-        problem.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
+            // Act
+            var response = await client.PostAsync("/api/ncr-reports/inspect", form);
 
-        var filesAfter = Directory.GetFiles(_uploadDir);
-        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
-        newlyCreated.Should().NotContain(f => new FileInfo(f).Length >= 5 * 1024 * 1024, "Over-limit payload must never be written to disk.");
+            // Assert
+            response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+            response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+
+            var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+            problem.Should().NotBeNull();
+            problem!.Title.Should().Be("Payload Too Large");
+            problem.Detail.Should().Contain("exceeds the maximum allowed limit of 5242880 bytes (5MB)");
+
+            // Verification: The isolated upload directory must have 0 files (no file was ever written)
+            var uploadDir = Path.Combine(isolatedWebRoot, "uploads", "defects");
+            if (Directory.Exists(uploadDir))
+            {
+                Directory.GetFiles(uploadDir).Should().BeEmpty("Over-limit payload must never be written to disk.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(isolatedWebRoot))
+            {
+                try { Directory.Delete(isolatedWebRoot, recursive: true); } catch { /* Ignore lock */ }
+            }
+        }
     }
 
     [Fact]

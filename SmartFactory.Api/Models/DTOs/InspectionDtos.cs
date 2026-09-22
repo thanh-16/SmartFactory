@@ -23,6 +23,8 @@ public class NcrInspectionRequest
     public string Description { get; set; } = string.Empty;
 
     public IFormFile? Image { get; set; }
+
+    public string? RootCauseAnalysisJson { get; set; }
 }
 
 public class NcrReportResponse
@@ -40,6 +42,8 @@ public class NcrReportResponse
     public string Severity { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public string? RootCauseAnalysisJson { get; set; }
+    public RootCauseAnalysisResult? RootCauseAnalysis { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<string> ImageUrls { get; set; } = new();
 }

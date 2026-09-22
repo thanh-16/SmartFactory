@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SmartFactory.Api.Data;
 using SmartFactory.Api.Models.DTOs;
+using SmartFactory.Api.Services;
 using SmartFactory.Tests.Fixtures;
 using SmartFactory.Tests.Helpers;
 using Xunit;
@@ -219,19 +220,47 @@ public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationF
     [Fact]
     public async Task PostInspect_WhenDatabaseCommitFails_DeletesPhysicalUploadedFile()
     {
-        // Arrange: Create a dedicated factory instance with DbCrashInterceptor to trigger DB commit failure
+        await Inspect_WhenTransactionFails_PerformsCompensatingCleanup_DeletesUploadedFile();
+    }
+
+    [Fact]
+    public async Task Inspect_WhenTransactionFails_PerformsCompensatingCleanup_DeletesUploadedFile()
+    {
+        // Arrange
         var interceptor = new DbCrashInterceptor { TriggerFailure = true };
         var crashConnection = new SqliteConnection("DataSource=:memory:");
         crashConnection.Open();
+
+        string? capturedSavedPath = null;
+        string? capturedDeletedPath = null;
+        bool deleteFileWasCalled = false;
+        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
 
         using var crashingFactory = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
-                var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<FactoryDbContext>));
-                if (descriptor != null)
+                // Register Spy to capture specific uploaded and deleted file paths
+                var storageDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IFileStorageService));
+                var realStorage = new FileStorageService(webRoot);
+                if (storageDescriptor != null)
                 {
-                    services.Remove(descriptor);
+                    services.Remove(storageDescriptor);
+                }
+
+                var spyService = new SpyFileStorageService(realStorage,
+                    onSaved: path => capturedSavedPath = path,
+                    onDeleted: (path, _) =>
+                    {
+                        capturedDeletedPath = path;
+                        deleteFileWasCalled = true;
+                    });
+                services.AddSingleton<IFileStorageService>(spyService);
+
+                var dbDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<FactoryDbContext>));
+                if (dbDescriptor != null)
+                {
+                    services.Remove(dbDescriptor);
                 }
 
                 services.AddDbContext<FactoryDbContext>(options =>
@@ -249,14 +278,6 @@ public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationF
 
         var client = crashingFactory.CreateClient();
 
-        // Count existing files before test
-        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "defects");
-        if (!Directory.Exists(uploadDir))
-        {
-            Directory.CreateDirectory(uploadDir);
-        }
-        var filesBefore = Directory.GetFiles(uploadDir).ToHashSet();
-
         var jpegBytes = TestFileHelper.CreateValidJpegBytes();
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("1"), "LotId");
@@ -273,15 +294,49 @@ public class NcrInspectionIntegrationTests : IClassFixture<CustomWebApplicationF
         // Act
         var response = await client.PostAsync("/api/ncr-reports/inspect", form);
 
-        // Assert
+        // Assert: 1. API returns 500 InternalServerError
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
 
-        // Verify that no orphan file was left on disk in uploadDir
-        var filesAfter = Directory.GetFiles(uploadDir);
-        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
-        newlyCreated.Should().BeEmpty("The uploaded file must be cleaned up on DB rollback.");
+        // Assert: 2. File was saved prior to DB transaction
+        capturedSavedPath.Should().NotBeNullOrEmpty("File must have been saved prior to DB transaction execution.");
+        var physicalPath = Path.Combine(webRoot, capturedSavedPath!.TrimStart('/'));
+
+        // Assert: 3. DeleteFile was invoked for the compensating cleanup with the exact saved path
+        deleteFileWasCalled.Should().BeTrue("Compensating cleanup must invoke DeleteFile upon DB transaction rollback.");
+        capturedDeletedPath.Should().Be(capturedSavedPath, "Compensating cleanup must delete the exact file that was uploaded.");
+
+        // Assert: 4. The physical file does NOT exist on disk anymore (100% race-free check targeting specific file)
+        File.Exists(physicalPath).Should().BeFalse("Physical file must be deleted from disk upon DB transaction rollback.");
 
         crashConnection.Close();
         crashConnection.Dispose();
+    }
+
+    private class SpyFileStorageService : IFileStorageService
+    {
+        private readonly IFileStorageService _inner;
+        private readonly Action<string> _onSaved;
+        private readonly Action<string, bool> _onDeleted;
+
+        public SpyFileStorageService(IFileStorageService inner, Action<string> onSaved, Action<string, bool> onDeleted)
+        {
+            _inner = inner;
+            _onSaved = onSaved;
+            _onDeleted = onDeleted;
+        }
+
+        public async Task<string> SaveFileAsync(Microsoft.AspNetCore.Http.IFormFile file, string subFolder, CancellationToken ct = default)
+        {
+            var path = await _inner.SaveFileAsync(file, subFolder, ct);
+            _onSaved(path);
+            return path;
+        }
+
+        public bool DeleteFile(string relativeFilePath)
+        {
+            var result = _inner.DeleteFile(relativeFilePath);
+            _onDeleted(relativeFilePath, result);
+            return result;
+        }
     }
 }
