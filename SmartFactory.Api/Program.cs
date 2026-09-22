@@ -53,6 +53,8 @@ builder.Services.AddScoped<INcrService, NcrService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IAiInspectionService, AiInspectionService>();
 builder.Services.AddScoped<INcrPdfExportService, NcrPdfExportService>();
+builder.Services.AddScoped<ISpcAnalysisService, SpcAnalysisService>();
+builder.Services.AddHostedService<SpcMonitoringBackgroundService>();
 
 var app = builder.Build();
 

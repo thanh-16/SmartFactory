@@ -15,6 +15,7 @@ public class FactoryDbContext : DbContext
     public DbSet<NcrReport> NcrReports => Set<NcrReport>();
     public DbSet<DefectImage> DefectImages => Set<DefectImage>();
     public DbSet<NcrDecision> NcrDecisions => Set<NcrDecision>();
+    public DbSet<StationHourlyMetric> StationHourlyMetrics => Set<StationHourlyMetric>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -112,6 +113,21 @@ public class FactoryDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.ApprovedByUserId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // StationHourlyMetric (SPC time series)
+        modelBuilder.Entity<StationHourlyMetric>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.DominantDefectType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.TriggeredRule).IsRequired().HasMaxLength(50);
+
+            entity.HasIndex(e => new { e.WorkStationId, e.WindowStartTime });
+
+            entity.HasOne(e => e.WorkStation)
+                  .WithMany()
+                  .HasForeignKey(e => e.WorkStationId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         SeedData(modelBuilder);

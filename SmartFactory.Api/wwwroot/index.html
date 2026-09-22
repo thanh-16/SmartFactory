@@ -359,6 +359,28 @@
     <!-- ========================================================================= -->
     <div id="view-supervisor" class="hidden space-y-6">
 
+      <!-- SPC PREDICTIVE QUALITY EARLY WARNING BANNER (Nelson Rules & Drift Detection) -->
+      <div id="spc-predictive-banner" class="hidden p-4 rounded-2xl border border-amber-400/80 bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-amber-500/20 backdrop-blur-md shadow-lg shadow-amber-500/10 animate-pulse">
+        <div class="flex items-start gap-3">
+          <div class="p-2 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xl">⚠️</div>
+          <div class="flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs font-black tracking-wider uppercase text-amber-400">[CẢNH BÁO SỚM SPC]</span>
+              <span id="spc-station-badge" class="px-2 py-0.5 rounded text-xs bg-slate-900 border border-amber-400/40 text-white font-bold">TRẠM ST-01</span>
+              <span id="spc-rule-badge" class="px-2 py-0.5 rounded text-xs bg-amber-400 text-slate-950 font-bold">Nelson Rule 2: Xu Hướng Leo Thang</span>
+            </div>
+            <p id="spc-alert-desc" class="text-xs text-amber-200 mt-1.5 font-medium leading-relaxed">
+              Phát hiện 3 ca kiểm tra liên tiếp có tỷ lệ khuyết tật tăng dần ngặt. Dấu hiệu trôi dung sai cơ khí hoặc mòn dao chấn dập!
+            </p>
+            <div class="mt-2 text-xs text-amber-100 bg-slate-950/60 p-2.5 rounded-xl border border-amber-500/30 flex items-start gap-2">
+              <span class="text-amber-400 font-bold shrink-0">Khuyến nghị kỹ thuật:</span>
+              <span id="spc-action-text">Cử thợ máy đo bù dao, làm mát khuôn và vệ sinh bàn trượt trước khi dập tiếp lô hàng.</span>
+            </div>
+          </div>
+          <button onclick="dismissSpcBanner()" class="text-amber-400 hover:text-white font-bold text-sm p-1 rounded-lg hover:bg-slate-800 transition">✕</button>
+        </div>
+      </div>
+
       <!-- Realtime KPI Stats Header -->
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
         
@@ -1062,8 +1084,42 @@
         loadSummaryKpis(),
         loadParetoChart(),
         loadPendingNcrsQueue(),
-        loadProductionLotsTable()
+        loadProductionLotsTable(),
+        loadSpcAlerts()
       ]);
+    }
+
+    async function loadSpcAlerts() {
+      try {
+        const res = await fetch('/api/dashboard/spc');
+        if (!res.ok) return;
+        const stations = await res.json();
+        if (Array.isArray(stations)) {
+          const alerted = stations.find(s => s.activeAlert != null);
+          const banner = document.getElementById('spc-predictive-banner');
+          if (alerted && alerted.activeAlert && banner) {
+            const alert = alerted.activeAlert;
+            const stationBadge = document.getElementById('spc-station-badge');
+            const ruleBadge = document.getElementById('spc-rule-badge');
+            const alertDesc = document.getElementById('spc-alert-desc');
+            const actionText = document.getElementById('spc-action-text');
+
+            if (stationBadge) stationBadge.textContent = `TRẠM ${alert.stationCode} (${alert.stationName})`;
+            if (ruleBadge) {
+              ruleBadge.textContent = `${alert.ruleViolated} (${alert.alertLevel})`;
+              ruleBadge.className = alert.alertLevel === 'Critical' 
+                ? 'px-2 py-0.5 rounded text-xs bg-rose-500 text-white font-bold'
+                : 'px-2 py-0.5 rounded text-xs bg-amber-400 text-slate-950 font-bold';
+            }
+            if (alertDesc) alertDesc.textContent = `${alert.ruleDescription} Tỷ lệ lỗi: ${(alert.currentDefectRate * 100).toFixed(1)}% (UCL: ${(alert.upperControlLimit * 100).toFixed(1)}%). Dị thường: ${alert.dominantDefectType}`;
+            if (actionText) actionText.textContent = `${alert.recommendedAction} (Giả thuyết: ${alert.rootCauseHypothesis})`;
+
+            banner.classList.remove('hidden');
+          }
+        }
+      } catch (e) {
+        console.error('Error loading SPC alerts:', e);
+      }
     }
 
     async function loadSummaryKpis() {
@@ -1386,6 +1442,11 @@
       document.getElementById('andon-beacon-bar').classList.add('hidden');
     }
 
+    function dismissSpcBanner() {
+      const banner = document.getElementById('spc-predictive-banner');
+      if (banner) banner.classList.add('hidden');
+    }
+
     // =========================================================================
     // SIGNALR REALTIME CONNECTION & ANDON WOW MOMENTS
     // =========================================================================
@@ -1435,6 +1496,31 @@
         // 3. Highlight Supervisor badge & refresh queues
         loadSupervisorData();
         loadRecentReports();
+      });
+
+      // SPRINT 4: Receive SPC Predictive Quality Alert from Server
+      connection.on('ReceivePredictiveAlert', (alert) => {
+        console.warn('🔮 [SPC PREDICTIVE ALERT RECEIVED]:', alert);
+
+        const banner = document.getElementById('spc-predictive-banner');
+        if (banner) {
+          const stationBadge = document.getElementById('spc-station-badge');
+          const ruleBadge = document.getElementById('spc-rule-badge');
+          const alertDesc = document.getElementById('spc-alert-desc');
+          const actionText = document.getElementById('spc-action-text');
+
+          if (stationBadge) stationBadge.textContent = `TRẠM ${alert.stationCode} (${alert.stationName})`;
+          if (ruleBadge) {
+            ruleBadge.textContent = `${alert.ruleViolated} (${alert.alertLevel})`;
+            ruleBadge.className = alert.alertLevel === 'Critical' 
+              ? 'px-2 py-0.5 rounded text-xs bg-rose-500 text-white font-bold'
+              : 'px-2 py-0.5 rounded text-xs bg-amber-400 text-slate-950 font-bold';
+          }
+          if (alertDesc) alertDesc.textContent = `${alert.ruleDescription} Tỷ lệ lỗi: ${(alert.currentDefectRate * 100).toFixed(1)}% (UCL: ${(alert.upperControlLimit * 100).toFixed(1)}%). Dị thường: ${alert.dominantDefectType}`;
+          if (actionText) actionText.textContent = `${alert.recommendedAction} (Giả thuyết: ${alert.rootCauseHypothesis})`;
+
+          banner.classList.remove('hidden');
+        }
       });
 
       // Receive Decision Update

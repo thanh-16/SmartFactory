@@ -1,6 +1,7 @@
-namespace SmartFactory.Api.Hubs;
-
 using Microsoft.AspNetCore.SignalR;
+using SmartFactory.Api.Models.DTOs;
+
+namespace SmartFactory.Api.Hubs;
 
 /// <summary>
 /// Strongly-typed client contract for real-time factory Andon events
@@ -9,6 +10,7 @@ public interface IFactoryHubClient
 {
     Task ReceiveAndonAlert(AndonAlertPayload alert);
     Task ReceiveDecisionUpdate(DecisionUpdatePayload update);
+    Task ReceivePredictiveAlert(PredictiveAlertPayload alert);
 }
 
 /// <summary>
