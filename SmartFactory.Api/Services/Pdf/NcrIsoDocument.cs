@@ -370,6 +370,37 @@ public class NcrIsoDocument : IDocument
         });
     }
 
+    private void ComposeSpcProcessSection(IContainer container, StationSpcMetricsDto? spc)
+    {
+        if (spc == null) return;
+
+        container.Border(0.75f).BorderColor("#CBD5E1").Background("#F8FAFC").Padding(6).Column(col =>
+        {
+            col.Item().Row(r =>
+            {
+                r.RelativeItem().Text("KIỂM SOÁT THỐNG KÊ QUÁ TRÌNH (SPC PROCESS CAPABILITY):").Bold().FontSize(8.5f).FontColor("#1E3A8A");
+                r.ConstantItem(120).AlignRight().Text($"Chỉ số Cpk: {spc.ProcessCapabilityCpk:F2}").Bold().FontSize(8).FontColor("#16A34A");
+            });
+
+            col.Item().PaddingTop(3).Table(tbl =>
+            {
+                tbl.ColumnsDefinition(cd =>
+                {
+                    cd.RelativeColumn();
+                    cd.RelativeColumn();
+                    cd.RelativeColumn();
+                });
+
+                tbl.Cell().Border(0.5f).BorderColor("#E2E8F0").Padding(3)
+                   .Text($"Giới hạn UCL: {spc.CurrentUcl:P1}").FontSize(7.5f);
+                tbl.Cell().Border(0.5f).BorderColor("#E2E8F0").Padding(3)
+                   .Text($"Trung bình: {spc.HistoricalMeanDefectRate:P1}").FontSize(7.5f);
+                tbl.Cell().Border(0.5f).BorderColor("#E2E8F0").Padding(3)
+                   .Text($"Trạng thái: {spc.ProcessStatus}").Bold().FontSize(7.5f).FontColor(spc.ProcessStatus == "InControl" ? "#16A34A" : "#D97706");
+            });
+        });
+    }
+
     private void ComposeFooter(IContainer container)
     {
         container.BorderTop(0.5f).BorderColor("#CBD5E1").PaddingTop(4).Row(row =>
