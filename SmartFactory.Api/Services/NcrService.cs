@@ -254,7 +254,7 @@ public class NcrService : INcrService
             {
                 NcrReportId = ncr.Id,
                 ApprovedByUserId = user.Id,
-                Decision = request.Decision,
+                Decision = request.Decision ?? string.Empty,
                 Notes = request.Notes,
                 DecisionDate = DateTime.UtcNow
             };
@@ -275,7 +275,7 @@ public class NcrService : INcrService
         {
             Id = decision.Id,
             NcrReportId = ncr.Id,
-            Decision = decision.Decision,
+            Decision = decision.Decision ?? string.Empty,
             Notes = decision.Notes,
             ApprovedByUserId = user.Id,
             ApprovedByName = user.FullName,
@@ -293,7 +293,7 @@ public class NcrService : INcrService
                     DecisionId = decision.Id,
                     NcrReportId = ncr.Id,
                     NcrNumber = ncr.NcrNumber,
-                    Decision = decision.Decision,
+                    Decision = decision.Decision ?? string.Empty,
                     Notes = decision.Notes,
                     ProductionLotId = lot?.Id ?? 0,
                     LotNumber = lot?.LotNumber ?? string.Empty,
