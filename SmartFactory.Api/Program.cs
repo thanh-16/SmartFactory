@@ -13,6 +13,7 @@ builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddSignalR();
+builder.Services.AddHealthChecks();
 
 // Configure CORS for web client and SignalR WebSocket
 builder.Services.AddCors(options =>
@@ -56,15 +57,16 @@ app.UseMiddleware<ExceptionHandlingMiddleware>();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<FactoryHub>("/hubs/factory");
+app.MapHealthChecks("/health");
 
 // Ensure DB schema and apply SQLite WAL pragmas
 using (var scope = app.Services.CreateScope())

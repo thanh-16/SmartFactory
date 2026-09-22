@@ -1,0 +1,40 @@
+services:
+  smartfactory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartfactory_app
+    restart: unless-stopped
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/smartfactory.db;Cache=Shared
+      - UploadSettings__MaxFileSize=5242880
+      - UploadSettings__UploadDirectory=uploads/defects
+      - UploadSettings__UploadPath=uploads/defects
+    volumes:
+      - smartfactory_data:/app/data
+      - smartfactory_uploads:/app/wwwroot/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - smartfactory_network
+
+volumes:
+  smartfactory_data:
+    name: smartfactory_data
+    driver: local
+  smartfactory_uploads:
+    name: smartfactory_uploads
+    driver: local
+
+networks:
+  smartfactory_network:
+    name: smartfactory_network
+    driver: bridge

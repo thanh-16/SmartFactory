@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Visual Studio & IDEs
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build artifacts
+**/bin/
+**/obj/
+**/TestResults/
+
+# Database files
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Docker & CI files
+Dockerfile*
+docker-compose*
+
+# Documentation & temporary files
+PROJECT.md
+README.md
+.agents/
+SmartFactory.Tests/

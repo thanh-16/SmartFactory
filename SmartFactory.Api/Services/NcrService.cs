@@ -13,6 +13,7 @@ public class NcrService : INcrService
     private readonly FactoryDbContext _context;
     private readonly IFileStorageService _fileStorageService;
     private readonly IHubContext<FactoryHub, IFactoryHubClient>? _hubContext;
+    private static readonly SemaphoreSlim _decisionSemaphore = new(1, 1);
 
     public NcrService(
         FactoryDbContext context, 
@@ -188,68 +189,79 @@ public class NcrService : INcrService
         return response;
     }
 
+    private static readonly SemaphoreSlim _decisionLock = new(1, 1);
+
     public async Task<NcrDecisionResponse> ProcessDecisionAsync(NcrDecisionRequest request, CancellationToken ct = default)
     {
-        var ncr = await _context.NcrReports
-            .Include(r => r.ProductionLot)
-            .Include(r => r.Decisions)
-            .FirstOrDefaultAsync(r => r.Id == request.NcrReportId, ct);
+        await _decisionLock.WaitAsync(ct);
+        NcrDecision decision;
+        NcrReport ncr;
+        AppUser user;
+        ProductionLot? lot;
 
-        if (ncr == null)
+        try
         {
-            throw new NotFoundException($"NCR Report with ID {request.NcrReportId} not found.");
-        }
+            ncr = await _context.NcrReports
+                .Include(r => r.ProductionLot)
+                .Include(r => r.Decisions)
+                .FirstOrDefaultAsync(r => r.Id == request.NcrReportId, ct)
+                ?? throw new NotFoundException($"NCR Report with ID {request.NcrReportId} not found.");
 
-        // Idempotency check: Cannot re-resolve an already resolved NCR
-        if (ncr.Status.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ConflictException($"NCR Report '{ncr.NcrNumber}' has already been resolved.");
-        }
-
-        var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Id == request.ApprovedByUserId, ct);
-
-        if (user == null)
-        {
-            throw new NotFoundException($"User with ID {request.ApprovedByUserId} not found.");
-        }
-
-        var lot = ncr.ProductionLot;
-        if (lot == null)
-        {
-            lot = await _context.ProductionLots.FirstOrDefaultAsync(l => l.Id == ncr.ProductionLotId, ct);
-        }
-
-        if (lot != null)
-        {
-            // Decision mapping:
-            // "Rework" => unlocks lot back to "InProgress"
-            // "Scrap" => sets lot to "Scrapped"
-            // "Concession" / "Return" => sets lot to "Released"
-            lot.Status = request.Decision switch
+            // Idempotency check: Cannot re-resolve an already resolved NCR
+            if (ncr.Status.Equals("Resolved", StringComparison.OrdinalIgnoreCase))
             {
-                "Rework" => "InProgress",
-                "Scrap" => "Scrapped",
-                "Concession" => "Released",
-                "Return" => "Released",
-                _ => "InProgress"
+                throw new ConflictException($"NCR Report '{ncr.NcrNumber}' has already been resolved.");
+            }
+
+            user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Id == request.ApprovedByUserId, ct)
+                ?? throw new NotFoundException($"User with ID {request.ApprovedByUserId} not found.");
+
+            lot = ncr.ProductionLot;
+            if (lot == null)
+            {
+                lot = await _context.ProductionLots.FirstOrDefaultAsync(l => l.Id == ncr.ProductionLotId, ct);
+            }
+
+            if (lot != null)
+            {
+                // Decision mapping:
+                // "Rework" => unlocks lot back to "InProgress"
+                // "Scrap" => sets lot to "Scrapped"
+                // "Concession" / "Return" => sets lot to "Released"
+                lot.Status = request.Decision switch
+                {
+                    "Rework" => "InProgress",
+                    "Scrap" => "Scrapped",
+                    "Concession" => "Released",
+                    "Return" => "Released",
+                    _ => "InProgress"
+                };
+                lot.UpdatedAt = DateTime.UtcNow;
+            }
+
+            ncr.Status = "Resolved";
+
+            decision = new NcrDecision
+            {
+                NcrReportId = ncr.Id,
+                ApprovedByUserId = user.Id,
+                Decision = request.Decision,
+                Notes = request.Notes,
+                DecisionDate = DateTime.UtcNow
             };
-            lot.UpdatedAt = DateTime.UtcNow;
+
+            await _context.NcrDecisions.AddAsync(decision, ct);
+            await _context.SaveChangesAsync(ct);
         }
-
-        ncr.Status = "Resolved";
-
-        var decision = new NcrDecision
+        catch (DbUpdateException ex)
         {
-            NcrReportId = ncr.Id,
-            ApprovedByUserId = user.Id,
-            Decision = request.Decision,
-            Notes = request.Notes,
-            DecisionDate = DateTime.UtcNow
-        };
-
-        await _context.NcrDecisions.AddAsync(decision, ct);
-        await _context.SaveChangesAsync(ct);
+            throw new ConflictException($"NCR Report with ID {request.NcrReportId} has already been resolved.", ex);
+        }
+        finally
+        {
+            _decisionLock.Release();
+        }
 
         var decisionResponse = new NcrDecisionResponse
         {

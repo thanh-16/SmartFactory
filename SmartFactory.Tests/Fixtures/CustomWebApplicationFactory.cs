@@ -22,6 +22,15 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 services.Remove(descriptor);
             }
 
+            // Override IFileStorageService to ensure uploaded files are stored in the test runner's wwwroot directory
+            var fileStorageDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(SmartFactory.Api.Services.IFileStorageService));
+            if (fileStorageDescriptor != null)
+            {
+                services.Remove(fileStorageDescriptor);
+            }
+            var testWebRoot = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot");
+            services.AddScoped<SmartFactory.Api.Services.IFileStorageService>(_ => new SmartFactory.Api.Services.FileStorageService(testWebRoot));
+
             // Create persistent in-memory SQLite connection
             _connection = new SqliteConnection("DataSource=:memory:");
             _connection.Open();
