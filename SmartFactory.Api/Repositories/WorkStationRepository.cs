@@ -15,7 +15,7 @@ public class WorkStationRepository : IWorkStationRepository
 
     public async Task<WorkStation?> GetByIdAsync(int id, CancellationToken ct = default)
     {
-        return await _context.WorkStations.FirstOrDefaultAsync(w => w.Id == id, ct);
+        return await _context.WorkStations.AsNoTracking().FirstOrDefaultAsync(workStation => workStation.Id == id, ct);
     }
 
     public async Task<List<WorkStation>> GetAllAsync(CancellationToken ct = default)

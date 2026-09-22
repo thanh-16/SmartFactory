@@ -16,26 +16,27 @@ public class NcrReportRepository : INcrReportRepository
     public async Task<NcrReport?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         return await _context.NcrReports
-            .Include(r => r.ProductionLot)
-            .Include(r => r.WorkStation)
-            .Include(r => r.ReportedByUser)
-            .Include(r => r.DefectImages)
-            .Include(r => r.Decisions)
-                .ThenInclude(d => d.ApprovedByUser)
-            .FirstOrDefaultAsync(r => r.Id == id, ct);
+            .Include(report => report.ProductionLot)
+            .Include(report => report.WorkStation)
+            .Include(report => report.ReportedByUser)
+            .Include(report => report.DefectImages)
+            .Include(report => report.Decisions)
+                .ThenInclude(decision => decision.ApprovedByUser)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(report => report.Id == id, ct);
     }
 
     public async Task<List<NcrReport>> GetAllAsync(CancellationToken ct = default)
     {
         return await _context.NcrReports
-            .Include(r => r.ProductionLot)
-            .Include(r => r.WorkStation)
-            .Include(r => r.ReportedByUser)
-            .Include(r => r.DefectImages)
-            .Include(r => r.Decisions)
-                .ThenInclude(d => d.ApprovedByUser)
+            .Include(report => report.ProductionLot)
+            .Include(report => report.WorkStation)
+            .Include(report => report.ReportedByUser)
+            .Include(report => report.DefectImages)
+            .Include(report => report.Decisions)
+                .ThenInclude(decision => decision.ApprovedByUser)
             .AsNoTracking()
-            .OrderByDescending(r => r.CreatedAt)
+            .OrderByDescending(report => report.CreatedAt)
             .ToListAsync(ct);
     }
 

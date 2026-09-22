@@ -529,9 +529,14 @@
             <span id="modal-ncr-number" class="text-xs font-mono text-emerald-400">NCR-2026-0000</span>
           </div>
         </div>
-        <button onclick="closeDecisionModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <a id="modal-btn-export-pdf" href="#" target="_blank" class="px-3 py-1.5 rounded-lg bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 text-xs font-semibold flex items-center gap-1.5 transition">
+            📄 Xuất PDF (ISO 9001)
+          </a>
+          <button onclick="closeDecisionModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
       </div>
 
       <!-- Defect summary in modal -->
@@ -930,7 +935,12 @@
                 </div>
                 <div class="text-[11px] text-slate-400 mt-0.5">${r.lotNumber} • ${r.defectType}</div>
               </div>
-              <span class="text-[10px] text-slate-500">${new Date(r.createdAt).toLocaleTimeString()}</span>
+              <div class="flex items-center gap-2">
+                <a href="/api/ncr-reports/${r.id}/export-pdf" target="_blank" title="Xuất PDF ISO 9001" class="px-2 py-1 rounded-lg bg-indigo-900/40 hover:bg-indigo-800 text-indigo-300 border border-indigo-700/50 text-[11px] font-medium flex items-center gap-1 transition">
+                  📄 PDF
+                </a>
+                <span class="text-[10px] text-slate-500">${new Date(r.createdAt).toLocaleTimeString()}</span>
+              </div>
             </div>
           `;
         }).join('');
@@ -1112,6 +1122,9 @@
 
               <!-- Quick Disposition Buttons -->
               <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                <a href="/api/ncr-reports/${ncr.id}/export-pdf" target="_blank" class="px-3 py-1.5 rounded-lg bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700 text-xs font-semibold flex items-center gap-1.5 transition">
+                  📄 Xuất PDF
+                </a>
                 <button onclick="openDecisionModal(${ncr.id})" class="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md">
                   <i data-lucide="gavel" class="w-3.5 h-3.5"></i>
                   Phê Duyệt Xử Lý
@@ -1193,6 +1206,8 @@
       document.getElementById('modal-severity').textContent = ncr.severity;
       document.getElementById('modal-description').textContent = `"${ncr.description}"`;
       document.getElementById('modal-notes').value = '';
+      const pdfBtn = document.getElementById('modal-btn-export-pdf');
+      if (pdfBtn) pdfBtn.href = `/api/ncr-reports/${ncr.id}/export-pdf`;
 
       selectDecision('Rework');
       document.getElementById('decision-modal').classList.remove('hidden');

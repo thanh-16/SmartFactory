@@ -21,10 +21,10 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _logger.LogError(ex, "Unhandled exception occurred: {Message}", ex.Message);
-            await HandleExceptionAsync(context, ex);
+            _logger.LogError(exception, "Unhandled exception occurred: {Message}", exception.Message);
+            await HandleExceptionAsync(context, exception);
         }
     }
 
@@ -34,32 +34,32 @@ public class ExceptionHandlingMiddleware
 
         var problemDetails = exception switch
         {
-            InvalidFileFormatException ex => new ProblemDetails
+            InvalidFileFormatException fileException => new ProblemDetails
             {
                 Status = StatusCodes.Status400BadRequest,
                 Title = "Invalid File Format",
-                Detail = ex.Message,
+                Detail = fileException.Message,
                 Instance = context.Request.Path
             },
-            PayloadTooLargeException ex => new ProblemDetails
+            PayloadTooLargeException payloadException => new ProblemDetails
             {
-                Status = StatusCodes.Status400BadRequest,
+                Status = StatusCodes.Status413PayloadTooLarge,
                 Title = "Payload Too Large",
-                Detail = ex.Message,
+                Detail = payloadException.Message,
                 Instance = context.Request.Path
             },
-            NotFoundException ex => new ProblemDetails
+            NotFoundException notFoundException => new ProblemDetails
             {
                 Status = StatusCodes.Status404NotFound,
                 Title = "Resource Not Found",
-                Detail = ex.Message,
+                Detail = notFoundException.Message,
                 Instance = context.Request.Path
             },
-            ConflictException ex => new ProblemDetails
+            ConflictException conflictException => new ProblemDetails
             {
                 Status = StatusCodes.Status409Conflict,
                 Title = "Conflict",
-                Detail = ex.Message,
+                Detail = conflictException.Message,
                 Instance = context.Request.Path
             },
             _ => new ProblemDetails
